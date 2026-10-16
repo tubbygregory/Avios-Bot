@@ -17,7 +17,7 @@ before(async () => {
     if (!pathname.startsWith('/Avios-Bot/') || !file.startsWith(root + '/') || !existsSync(file)) {
       res.writeHead(404).end(); return;
     }
-    const type = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml' }[extname(file)];
+    const type = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json' }[extname(file)];
     res.writeHead(200, { 'Content-Type': type || 'text/plain' }).end(readFileSync(file));
   });
   await new Promise(done => server.listen(0, '127.0.0.1', done));
@@ -54,8 +54,8 @@ window.puter = {
   }}
 };`;
 
-async function open(t, { storage, blockedStorage, sdkMode = 'mock', viewport } = {}) {
-  const context = await browser.newContext({ viewport, serviceWorkers: 'block' });
+async function open(t, { storage, blockedStorage, sdkMode = 'mock', viewport, hasTouch = false } = {}) {
+  const context = await browser.newContext({ viewport, hasTouch, serviceWorkers: 'block' });
   t.after(() => context.close());
   // No provider, SDK or AI traffic escapes this deterministic test suite.
   await context.route('https://**/*', route => route.request().url() === 'https://js.puter.com/v2/'
@@ -81,7 +81,10 @@ async function open(t, { storage, blockedStorage, sdkMode = 'mock', viewport } =
   if (sdkMode === 'mock') await page.waitForFunction(() => Boolean(window.puter));
   return page;
 }
-async function choose(page, id) { await page.locator('label').filter({ has: page.locator(id) }).click(); }
+async function choose(page, id) {
+  if (!await page.locator('#reward-details').evaluate(e => e.open)) await page.locator('.profile-summary').click();
+  await page.locator('label').filter({ has: page.locator(id) }).click();
+}
 async function ask(page, message = 'A laptop under £1000') {
   await page.locator('#chat-input').fill(message);
   await page.locator('#send-button').click();
@@ -393,4 +396,89 @@ test('changing rewards refreshes an existing external prompt before copying agai
   assert.match(await p.locator('#handoff-status').textContent(), /updated prompt/);
   await p.locator('#copy-prompt').click(); await idle(p);
   assert.equal(await p.evaluate(() => window.__clipboard.at(-1)), prompt);
+});
+
+test('phone composer is reachable on the first screen and rewards remain usable when expanded', async t => {
+  for (const [width, height] of [[320,568],[375,667],[390,844],[430,932]]) {
+    const p = await open(t, {viewport:{width,height},hasTouch:true});
+    assert.equal(await p.locator('#reward-details').evaluate(e => e.open), false);
+    const send = await p.locator('#send-button').boundingBox();
+    assert.ok(send.y >= 0 && send.y + send.height <= height + 1, `composer visible at ${width}x${height}`);
+    assert.ok(send.height >= 44 && send.width >= 44);
+    assert.ok(await p.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+    await choose(p, '#ba-premium'); await choose(p, '#revolut');
+    await p.locator('#revolut-plan').selectOption('Ultra');
+    assert.ok((await p.locator('label').filter({has:p.locator('#ba-premium')}).boundingBox()).height >= 44);
+    await p.locator('#done-rewards').click();
+    assert.equal(await p.locator('#reward-details').evaluate(e => e.open), false);
+    assert.match(await p.locator('#profile-overview').textContent(), /Premium Plus.*Ultra/);
+    await ask(p, 'A weekend in Edinburgh'); await idle(p);
+    const payload = await p.evaluate(() => window.__calls[0].messages[0].content);
+    assert.match(payload, /Premium Plus/); assert.match(payload, /Ultra/);
+    assert.equal(await p.locator('#chat-intro').isVisible(), false);
+    await p.locator('#clear-chat').click();
+    assert.equal(await p.locator('#chat-intro').isVisible(), true);
+  }
+});
+
+test('phone controls remain reachable in landscape and a keyboard-sized viewport', async t => {
+  const p = await open(t, {viewport:{width:390,height:844},hasTouch:true});
+  for (const [width,height] of [[844,390],[390,430]]) {
+    await p.setViewportSize({width,height});
+    await p.locator('#chat-input').focus();
+    await p.waitForTimeout(100);
+    const rect = await p.locator('#send-button').boundingBox();
+    assert.ok(rect.y >= 0 && rect.y + rect.height <= height + 1, `send reachable at ${width}x${height}`);
+    assert.ok(await p.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+    await p.locator('#chat-input').fill('A short question');
+    assert.equal(await p.locator('#chat-input').inputValue(), 'A short question');
+  }
+});
+
+test('home-screen manifest and icon paths resolve under the Pages project URL', async t => {
+  const p = await open(t);
+  const url = new URL(await p.locator('link[rel="manifest"]').getAttribute('href'),origin);
+  const response = await p.request.get(url.href);
+  assert.equal(response.status(),200);
+  const manifest = await response.json();
+  assert.equal(new URL(manifest.start_url,url).href, origin);
+  assert.equal(new URL(manifest.scope,url).href, origin);
+  assert.equal(new URL(manifest.id,url).href, origin);
+  assert.equal(manifest.display, 'standalone');
+  for (const icon of manifest.icons) {
+    const image = await p.request.get(new URL(icon.src,url).href);
+    assert.equal(image.status(),200);
+    const bytes = await image.body();
+    assert.equal(bytes.subarray(1,4).toString(),'PNG');
+    assert.equal(`${bytes.readUInt32BE(16)}x${bytes.readUInt32BE(20)}`, icon.sizes);
+  }
+  const apple = await p.request.get(new URL(await p.locator('link[rel="apple-touch-icon"]').getAttribute('href'),origin).href);
+  const bytes = await apple.body();
+  assert.equal(bytes.readUInt32BE(16),180);
+  assert.equal(bytes.readUInt32BE(20),180);
+});
+
+test('phone own-AI handoff and collapsed/expanded controls remain accessible', async t => {
+  const p = await open(t, {viewport:{width:390,height:844},hasTouch:true});
+  await p.evaluate(axe.source);
+  const check = async () => {
+    const result = await p.evaluate(() => axe.run(document, {runOnly:{type:'tag',values:['wcag2a','wcag2aa','wcag21aa']}}));
+    assert.deepEqual(result.violations.map(v=>({id:v.id,targets:v.nodes.map(n=>n.target)})),[]);
+  };
+  await check();
+  await choose(p, '[data-profile="nectar"]');
+  await check();
+  await p.locator('#done-rewards').click();
+  await p.locator('[data-mode="own"]').click();
+  await p.locator('[data-provider="claude"]').click();
+  const popupPromise = p.waitForEvent('popup');
+  await ask(p, 'A dinner in London');
+  const popup = await popupPromise; await popup.waitForURL('https://claude.ai/');
+  await idle(p); await popup.close();
+  assert.match(await p.locator('#handoff-status').textContent(), /Prompt copied/);
+  assert.ok((await p.evaluate(()=>window.__clipboard.at(-1))).includes('Nectar'));
+  await check();
+  await p.locator('.app-notes summary').click();
+  assert.equal(await p.locator('.install-hint').isVisible(), true);
+  await check();
 });

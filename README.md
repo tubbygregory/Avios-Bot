@@ -2,6 +2,12 @@
 
 See [the audit report](AUDIT.md) for findings, validation limits and prioritised improvements.
 
+## Using it on a phone
+
+The phone layout starts with a compact introduction, an expandable rewards summary, search mode and the question composer. Tap **My rewards** to edit cards/programmes, then **Done** to return to the conversation. Selected rewards stay visible in the summary and remain saved between visits. Answers use a larger reading size and the composer stays sticky while scrolling. The layout accounts for display safe areas, changing viewport height and landscape phones; pinch zoom remains available.
+
+To launch it from your home screen, use Safari’s **Share → Add to Home Screen** on iPhone, or your Android browser’s **Install app / Add to Home screen** menu. The manifest and app icons use project-relative URLs for GitHub Pages. Home-screen launch uses standalone display where supported. AI searches still need internet access; no service worker caches pages, conversations, SDK responses or financial advice. Physical-device keyboard and installation behaviour should also be checked on the devices you support.
+
 Imported from https://aviosmaxxing.netlify.app/ on 16 October 2026.
 
 Static HTML, CSS and JavaScript; no build step is required. Serve the repository root with any static web server. Asset paths support GitHub Pages project hosting.

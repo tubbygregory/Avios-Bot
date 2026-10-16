@@ -24,6 +24,8 @@ const handoffStatus = document.getElementById('handoff-status');
 const copyPromptButton = document.getElementById('copy-prompt');
 const openProvider = document.getElementById('open-provider');
 const sdkStatus = document.getElementById('sdk-status');
+const rewardDetails = document.getElementById('reward-details');
+const profileOverview = document.getElementById('profile-overview');
 
 const PROFILE_KEY = 'avios-optimiser-profile-v2';
 const MODEL = 'perplexity/sonar-pro-search';
@@ -425,6 +427,9 @@ function renderProfileChips(container, profile = getProfile(), className = 'prof
 
 function updateProfileSummary() {
   renderProfileChips(activeProfileChips, getProfile());
+  const labels = profileLabels(getProfile());
+  profileOverview.textContent = labels.length ? labels.join(' · ') : 'Choose your cards & programmes';
+  document.querySelector('.profile-edit').firstChild.textContent = labels.length ? `${labels.length} selected ` : 'Edit ';
 }
 
 function systemPrompt(profile) {
@@ -661,6 +666,7 @@ function renderAssistantText(text) {
 }
 
 function addMessage(role, text, profileSnapshot = null) {
+  document.getElementById('chat-intro').hidden = true;
   const row = document.createElement('div');
   row.className = `message ${role}`;
   const bubble = document.createElement('div');
@@ -705,6 +711,7 @@ function addMessage(role, text, profileSnapshot = null) {
 }
 
 function addTyping() {
+  document.getElementById('chat-intro').hidden = true;
   const row = document.createElement('div');
   row.className = 'message assistant';
   row.innerHTML = '<div class="bubble"><span class="typing" aria-hidden="true"><span></span><span></span><span></span></span><span class="research-status">Connecting to Puter…</span></div>';
@@ -913,6 +920,7 @@ clearChatButton.addEventListener('click', () => {
   setBusy(false);
   conversation = [];
   messagesEl.innerHTML = '';
+  document.getElementById('chat-intro').hidden = false;
   suggestions.hidden = false;
   promptRecovery.hidden = true;
   generatedPrompt.value = '';
@@ -923,6 +931,31 @@ clearChatButton.addEventListener('click', () => {
   input.focus();
   if (wasSearching) showToast('Chat cleared. A search already sent to Puter may still use your allowance.');
 });
+
+document.getElementById('done-rewards').addEventListener('click', () => {
+  rewardDetails.open = false;
+  rewardDetails.querySelector('summary').focus();
+});
+
+// Keep the first phone screen focused on the question; native details remains
+// usable without JS and handles keyboard/expanded-state semantics itself.
+if (window.matchMedia('(max-width: 760px), (max-height: 500px) and (max-width: 960px)').matches) rewardDetails.open = false;
+
+function updateViewport() {
+  const viewport = window.visualViewport;
+  if (viewport && viewport.scale !== 1) return; // Preserve pinch zoom behaviour.
+  const height = viewport?.height || window.innerHeight;
+  document.documentElement.style.setProperty('--app-viewport-height', `${height}px`);
+  const inset = document.activeElement === input && viewport
+    ? Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop) : 0;
+  document.documentElement.style.setProperty('--keyboard-inset', `${inset}px`);
+}
+window.visualViewport?.addEventListener('resize', updateViewport);
+window.visualViewport?.addEventListener('scroll', updateViewport);
+window.addEventListener('resize', updateViewport);
+input.addEventListener('focus', updateViewport);
+input.addEventListener('blur', updateViewport);
+updateViewport();
 
 copyPromptButton.addEventListener('click', async () => {
   if (busy || !generatedPrompt.value) return;
