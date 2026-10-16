@@ -106,6 +106,8 @@ details[open] > .profile-summary .profile-edit svg { transform: rotate(180deg); 
   height: 100%;
 }
 .header-actions { display: flex; align-items: center; }
+.header-actions { gap: 6px; }
+.tools-button { width: 44px; padding-inline: 0 !important; }
 .header-button {
   min-height: 38px;
   padding: 8px 15px;
@@ -768,4 +770,92 @@ textarea::placeholder { color: #66758a; }
   .hero { display: none; }
   .profile-summary { min-height: 60px; padding: 10px 14px; }
   .chat-intro { display: none; }
+}
+
+/* Local planning, calculation and saved-recommendation tools. */
+#tools-dialog {
+  width: min(760px, calc(100% - 24px));
+  max-width: calc(100% - 24px);
+  max-height: calc(var(--app-viewport-height, 100dvh) - 24px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  position: fixed;
+  top: calc(var(--app-viewport-top, 0px) + 12px + env(safe-area-inset-top, 0px));
+  bottom: auto;
+  margin: 0 auto;
+  padding: 22px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--line-strong);
+  border-radius: 20px;
+  background: #fff;
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+#tools-dialog::backdrop { background: rgba(18,43,85,.45); backdrop-filter: blur(3px); }
+.tools-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; position: sticky; top: 0; z-index: 2; padding-block: 4px; background: #fff; }
+.tools-heading h2 { font-size: 22px; line-height: 1.25; letter-spacing: -.025em; color: var(--avios-blue-deep); margin: 0; }
+.tool-button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+  min-height: 44px; padding: 10px 14px;
+  border: 1px solid var(--line-strong); border-radius: 12px;
+  background: #fff; color: var(--avios-blue-deep); font-size: 13px; font-weight: 700;
+}
+.tool-button.primary, .tool-button[aria-pressed="true"] { background: var(--avios-blue); border-color: var(--avios-blue); color: #fff; }
+.tool-button:disabled { opacity: .55; }
+.tools-tabs { display: flex; gap: 4px; padding: 4px; margin: 18px 0; border-radius: 14px; background: var(--avios-blue-pale); border: 1px solid var(--line); }
+.tools-tabs button { flex: 1; min-width: 0; min-height: 44px; padding: 8px; border: 0; border-radius: 10px; background: transparent; color: #5f6f84; font-size: 13px; font-weight: 700; }
+.tools-tabs button[aria-selected="true"] { background: #fff; color: var(--avios-blue-deep); box-shadow: 0 2px 7px rgba(24,56,109,.08); }
+.tools-tabs button:focus-visible { outline-offset: -3px; }
+.tool-copy, #tools-status { font-size: 14px; line-height: 1.6; color: #5f6f84; }
+#tools-status { padding: 12px; border-radius: 12px; background: var(--avios-blue-pale); color: var(--text); overflow-wrap: anywhere; scroll-margin-top: 100px; }
+#tools-status:empty { display: none; }
+.tool-form { display: grid; gap: 16px; margin: 16px 0; }
+.tool-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; min-width: 0; }
+.tool-form label { display: grid; align-content: start; gap: 7px; font-size: 13px; line-height: 1.5; font-weight: 700; min-width: 0; }
+.tool-form input:not([type="checkbox"]), .tool-form select, #tools-dialog textarea {
+  display: block; width: 100%; min-width: 0; min-height: 44px; padding: 10px 12px;
+  border: 1px solid var(--line-strong); border-radius: 10px; background: #fff; color: var(--text); font-size: 16px; font-weight: 400;
+}
+#tools-dialog textarea { min-height: 100px; max-height: 260px; resize: vertical; flex: none; }
+.tool-form fieldset { margin: 0; padding: 14px; border: 1px solid var(--line-strong); border-radius: 12px; min-width: 0; }
+.tool-form legend { font-size: 14px; font-weight: 700; padding-inline: 6px; }
+.tool-form select { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.tool-form label.tool-check { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; min-height: 44px; font-weight: 400; font-size: 14px; }
+.tool-check input { width: 20px; height: 20px; margin: 1px 0 0; flex: 0 0 auto; accent-color: var(--avios-blue); }
+.tool-link { display: inline-block; min-height: 44px; padding: 10px 0; color: var(--avios-blue); font-size: 14px; overflow-wrap: anywhere; }
+.save-details { padding: 14px; margin: 16px 0; border: 1px solid var(--line-strong); border-radius: 14px; }
+.save-details > summary, .saved-item summary { min-height: 44px; padding: 10px 0; cursor: pointer; font-size: 15px; line-height: 1.5; color: var(--avios-blue-deep); font-weight: 700; overflow-wrap: anywhere; }
+#tools-dialog summary:focus-visible { outline: 3px solid var(--avios-blue); outline-offset: 3px; border-radius: 5px; }
+.saved-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; }
+.saved-item { border-top: 1px solid var(--line); padding: 14px 0; }
+.saved-answer { font-size: 15px; line-height: 1.65; overflow-wrap: anywhere; }
+.saved-query { white-space: pre-wrap; font-size: 15px; line-height: 1.6; overflow-wrap: anywhere; }
+.saved-answer h3 { color: var(--avios-blue-deep); }
+.saved-answer a { color: var(--avios-blue); }
+.calculator-result { padding: 16px; border: 1px solid var(--line-strong); border-radius: 14px; background: var(--avios-blue-pale); overflow-wrap: anywhere; }
+.calculator-result h3 { color: var(--avios-blue-deep); margin: 0 0 14px; font-size: 22px; }
+.calculator-result p { font-size: 15px; line-height: 1.6; }
+.calculator-result .tool-link { display: block; }
+.comparison { margin: 14px 0 20px; }
+.comparison-notice { color: #5f6f84; font-size: 13px; line-height: 1.6; margin: 0 0 12px !important; }
+.comparison-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 12px; }
+.comparison-card { min-width: 0; padding: 16px; border: 1px solid var(--line-strong); border-radius: 14px; background: var(--avios-blue-pale); overflow-wrap: anywhere; }
+.comparison-card h4 { margin: 0 0 14px; font-size: 17px; line-height: 1.4; color: var(--avios-blue-deep); }
+.comparison-card dl { margin: 0; }
+.comparison-card dt { font-size: 12px; font-weight: 700; line-height: 1.5; color: #5f6f84; margin-bottom: 4px; }
+.comparison-card dd { margin: 0 0 12px; font-size: 15px; line-height: 1.6; }
+.comparison-card dd p { margin: 0; }
+.comparison-card dd:last-child { margin-bottom: 0; }
+.comparison-card dd:last-child a { display: block; min-height: 44px; padding-block: 10px; }
+.answer-narrative:empty { display: none; }
+.message .tool-button { margin-top: 12px; }
+[hidden] { display: none !important; }
+@media (max-width: 560px) {
+  #tools-dialog { width: calc(100% - 16px); max-width: calc(100% - 16px); padding: 16px; border-radius: 16px; }
+  .tools-heading h2 { font-size: 19px; }
+  .tools-tabs { margin-block: 14px; }
+  .tools-tabs button { font-size: 12px; padding-inline: 4px; }
+  .tool-grid { grid-template-columns: 1fr; }
+  .tool-form > .primary { width: 100%; }
+  .comparison-grid { grid-template-columns: 1fr; }
+  .comparison-card dd { font-size: 16px; }
 }

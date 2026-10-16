@@ -34,6 +34,7 @@
       </a>
       <div class="header-actions">
         <button id="puter-auth" type="button" hidden aria-hidden="true">Connect</button>
+        <button id="open-tools" class="header-button tools-button" type="button" aria-haspopup="dialog">Tools</button>
         <button id="clear-chat" class="header-button" type="button">New chat</button>
       </div>
     </div>
@@ -215,6 +216,7 @@
           <details class="app-notes">
             <summary>About rewards &amp; your data</summary>
             <p class="footer-note">Prices and reward rates can change. Check the final offer before paying. <strong>Search here</strong> sends your question, selected rewards and recent conversation to Puter and uses your account's allowance and limits. <strong>Use your AI</strong> copies a personalised prompt for you to send to your chosen assistant.</p>
+            <p class="footer-note">Searches and answers are saved only when you choose. Saved items stay in this browser until you delete them. Use Tools → Saved to export a copy or delete saved items. New chat clears the current conversation, not saved items.</p>
             <p class="install-hint">Add to your home screen: on iPhone, use Safari’s Share menu → Add to Home Screen. On Android, open your browser’s menu and choose Install app or Add to Home screen. Internet access is required for AI searches.</p>
           </details>
           </div>
@@ -225,7 +227,64 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
+  <dialog id="tools-dialog" aria-labelledby="tools-title">
+    <div class="tools-heading"><h2 id="tools-title">Make your next spend count</h2><button id="close-tools" class="tool-button" type="button">Close</button></div>
+    <div class="tools-tabs" role="tablist" aria-label="Rewards tools">
+      <button id="tab-guide" type="button" role="tab" aria-selected="true" aria-controls="panel-guide">Plan a search</button>
+      <button id="tab-calculator" type="button" role="tab" aria-selected="false" aria-controls="panel-calculator" tabindex="-1">Calculator</button>
+      <button id="tab-saved" type="button" role="tab" aria-selected="false" aria-controls="panel-saved" tabindex="-1">Saved <span id="saved-count">0</span></button>
+    </div>
+    <p id="tools-status" role="status"></p>
+    <section id="panel-guide" role="tabpanel" aria-labelledby="tab-guide">
+      <p class="tool-copy">Add a few details, then review your question before sending it in either AI mode.</p>
+      <form id="guide-form" class="tool-form">
+        <label>What are you planning?<select id="guide-kind"><option value="purchase">A purchase</option><option value="hotel">A hotel stay</option><option value="flight">A flight</option><option value="dining">Dining out</option></select></label>
+        <div id="guide-fields" class="tool-grid"></div>
+        <label>Anything else? (optional)<textarea id="guide-notes" rows="3" maxlength="1000" placeholder="Preferences, accessibility needs, or something you already own"></textarea></label>
+        <button class="tool-button primary" id="prepare-search" type="submit">Prepare search</button>
+      </form>
+    </section>
+    <section id="panel-calculator" role="tabpanel" aria-labelledby="tab-calculator" hidden>
+      <p class="tool-copy">Estimate earnings for qualifying spend. Check the issuer’s current rates, exclusions and conversion terms first. You confirm these rates; this calculator does not fetch live offers.</p>
+      <form id="calculator-form" class="tool-form">
+        <div class="tool-grid">
+          <label>Payment card<select id="calc-card"></select></label>
+          <label>Qualifying spend (£)<input id="calc-spend" type="number" inputmode="decimal" min="0.01" max="1000000" step="0.01" required></label>
+          <label><span id="calc-rate-label">Avios per £1</span><input id="calc-rate" type="number" inputmode="decimal" min="0" max="10000" step="any" required></label>
+          <label id="calc-conversion-row" hidden>Avios per programme point<input id="calc-conversion" type="number" inputmode="decimal" min="0.000001" max="10000" step="any"></label>
+          <label>Additional fees (£)<input id="calc-fees" type="number" inputmode="decimal" min="0" max="1000000" step="0.01" value="0" required></label>
+          <label>Rate source URL<input id="calc-source" type="url" inputmode="url" maxlength="2000" required></label>
+          <label>Date you checked the terms<input id="calc-date" type="date" required></label>
+        </div>
+        <a id="calc-issuer" class="tool-link" target="_blank" rel="noopener noreferrer">Check issuer terms ↗</a>
+        <button id="research-rates" class="tool-button" type="button" data-prepare>Prepare a rate check</button>
+        <label class="tool-check"><input id="calc-confirm" type="checkbox" required><span>I checked the linked rates and that this spend is eligible, including any point conversion.</span></label>
+        <label class="tool-check"><input id="calc-portal" type="checkbox"><span>Add confirmed portal Avios</span></label>
+        <fieldset id="calc-portal-fields" hidden disabled><legend>Portal earnings</legend><div class="tool-grid">
+          <label>Portal-eligible spend (£)<input id="calc-portal-spend" type="number" inputmode="decimal" min="0" max="1000000" step="0.01" required></label>
+          <label>Portal Avios per £1<input id="calc-portal-rate" type="number" inputmode="decimal" min="0" max="10000" step="any" required></label>
+          <label>Portal terms URL<input id="calc-portal-source" type="url" inputmode="url" maxlength="2000" required></label>
+        </div><label class="tool-check"><input id="calc-portal-confirm" type="checkbox" required><span>I checked this portal rate today, its eligible spend and that it stacks with this card.</span></label></fieldset>
+        <button type="submit" class="tool-button primary">Calculate rewards</button>
+      </form>
+      <section id="calculator-result" class="calculator-result" aria-live="polite" aria-label="Rewards estimate" hidden></section>
+    </section>
+    <section id="panel-saved" role="tabpanel" aria-labelledby="tab-saved" hidden>
+      <p class="tool-copy">Saved only on this browser and address, when you choose to save. Saved prices and offers may have changed. Export a copy to move devices.</p>
+      <details class="save-details"><summary>Save a search or paste an AI answer</summary>
+        <form id="save-form" class="tool-form">
+          <label>Your search<textarea id="saved-question" rows="3" maxlength="12000" required></textarea></label>
+          <label>Answer from your AI (optional)<textarea id="saved-answer" rows="5" maxlength="30000" placeholder="Paste an answer from ChatGPT, Claude or Gemini. Comparison tables will become cards."></textarea></label>
+          <button type="submit" class="tool-button primary">Save item</button>
+        </form>
+      </details>
+      <div class="saved-actions"><button type="button" id="saved-all" class="tool-button" aria-pressed="true">All</button><button type="button" id="saved-favourites" class="tool-button" aria-pressed="false">Favourites</button><button type="button" id="export-saved" class="tool-button">Export</button><button type="button" id="import-saved" class="tool-button">Import</button><input id="saved-file" type="file" accept="application/json,.json" hidden><button type="button" id="delete-saved" class="tool-button">Delete all</button></div>
+      <div id="saved-items"></div>
+    </section>
+  </dialog>
+
   <script id="puter-sdk" src="https://js.puter.com/v2/" async></script>
   <script src="./app.js" defer></script>
+  <script src="./features.js" defer></script>
 </body>
 </html>

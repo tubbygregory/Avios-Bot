@@ -548,3 +548,214 @@ test('phone own-AI handoff and collapsed/expanded controls remain accessible', a
   assert.equal(await p.locator('.install-hint').isVisible(), true);
   await check();
 });
+
+const comparisonAnswer = `Recommended routes for this example only.
+
+| Route | Cash price | Avios | Fees | Eligibility / exclusions | Checked | Sources |
+| --- | --- | --- | --- | --- | --- | --- |
+| Best overall: Example shop | £100 | 150 Avios | £0 | Selected card; eligible spend only | 2026-01-01 | [Merchant terms](https://example.com/price) [Issuer terms](https://example.com/rewards) |
+| Alternative <img src=x onerror=alert(1)> | Unverified | Unverified | Unverified | <script>alert(1)</script> | 2999-01-01 | [Unsafe](javascript:alert(1)) |
+
+Check the final offer before buying.`;
+async function tools(page, tab = 'guide') {
+  if (!await page.locator('#tools-dialog').evaluate(e=>e.open)) await page.locator('#open-tools').click();
+  await page.locator('#tab-' + tab).click();
+}
+async function saveManual(page, question, answer = '') {
+  await tools(page, 'saved');
+  if (!await page.locator('.save-details').evaluate(e=>e.open)) await page.locator('.save-details > summary').click();
+  await page.locator('#saved-question').fill(question); await page.locator('#saved-answer').fill(answer);
+  await page.locator('#save-form button').click();
+}
+async function calculator(page, {spend='100',rate='1.5',fees='0',conversion} = {}) {
+  await tools(page,'calculator');
+  for (const [id,value] of Object.entries({'calc-spend':spend,'calc-rate':rate,'calc-fees':fees,'calc-source':'https://example.com/issuer-terms'})) await page.locator('#'+id).fill(value);
+  if (conversion) await page.locator('#calc-conversion').fill(conversion);
+  await page.locator('#calc-confirm').check();
+}
+
+test('both AI prompts request sourced comparisons and all rendered cells escape unsafe content', async t => {
+  const p = await open(t,{viewport:{width:390,height:844},hasTouch:true});
+  await p.evaluate(answer=>window.__answer={message:{content:answer}},comparisonAnswer);
+  await ask(p,'Compare laptop buying routes'); await idle(p);
+  assert.equal(await p.locator('.comparison-card').count(),2);
+  assert.match(await p.locator('.comparison-card').first().textContent(),/£100.*150 Avios.*£0/s);
+  assert.match(await p.locator('.comparison-card').last().textContent(),/Unverified/);
+  assert.equal(await p.locator('.comparison-card img,.comparison-card script,.comparison-card a[href^="javascript:"]').count(),0);
+  assert.match(await p.locator('.comparison-card').last().textContent(),/<script>/);
+  assert.equal(await p.locator('.comparison-card').first().locator('a').first().getAttribute('rel'),'noopener noreferrer');
+  assert.equal(await p.locator('#saved-count').textContent(),'0','answers are not saved automatically');
+  assert.match(await p.evaluate(()=>window.__calls[0].messages[0].content),/\| Route \| Cash price \| Avios \| Fees \|/);
+  await p.locator('[data-mode="own"]').click(); await fakePopup(p); await ask(p,'Compare a hotel'); await idle(p);
+  assert.match(await p.locator('#generated-prompt').inputValue(),/\| Route \| Cash price \| Avios \| Fees \|/);
+  assert.equal(await p.evaluate(()=>window.__calls.length),1);
+});
+
+test('malformed comparison tables retain readable safe answers', async t => {
+  const p=await open(t);
+  await p.evaluate(answer=>window.__answer={message:{content:answer}},comparisonAnswer.replace('| Fees |','| Missing header |'));
+  await ask(p); await idle(p);
+  assert.equal(await p.locator('.comparison-card').count(),0);
+  assert.match(await p.locator('.answer-content').textContent(),/Recommended routes/);
+  assert.equal(await p.locator('.answer-content img,.answer-content script').count(),0);
+});
+
+test('all four guides prepare editable details and use selected rewards only on send', async t => {
+  const p=await open(t); await choose(p,'#ba-premium'); await choose(p,'[data-profile="nectar"]');
+  const dates=await p.evaluate(()=>[10,12].map(n=>{const d=new Date();d.setDate(d.getDate()+n);return d.toISOString().slice(0,10)}));
+  for(const kind of ['purchase','hotel','flight','dining']) {
+    await tools(p);await p.locator('#guide-kind').selectOption(kind);
+    if(kind==='purchase') {await p.locator('#guide-item').fill('https://example.com/laptop');await p.locator('#guide-retailers').fill('Example shop');}
+    else await p.locator('#guide-destination').fill(kind==='dining'?'Soho':'Edinburgh');
+    if(kind==='flight'){await p.locator('#guide-from').fill('London');await p.locator('#guide-cabin').selectOption('Business');}
+    if(kind!=='purchase')await p.locator('#guide-start').fill(dates[0]);
+    if(kind==='flight'||kind==='hotel')await p.locator('#guide-end').fill(dates[1]);
+    if(kind!=='flight')await p.locator('#guide-budget').fill('250');
+    await p.locator('#guide-notes').fill('Step-free access is important.');await p.locator('#prepare-search').click();
+    assert.equal(await p.locator('#tools-dialog').evaluate(e=>e.open),false);
+    const query=await p.locator('#chat-input').inputValue();assert.match(query,/Step-free access/);assert.match(query,/dated primary sources/);
+    if(kind==='flight')assert.match(query,/London.*Edinburgh[\s\S]*Business/);
+    if(kind==='purchase')assert.match(query,/https:\/\/example.com\/laptop/);
+  }
+  assert.equal(await p.evaluate(()=>window.__calls.length),0,'preparing cannot consume AI allowance');
+  await p.locator('#send-button').click();await idle(p);
+  assert.match(await p.evaluate(()=>window.__calls[0].messages[0].content),/Premium Plus.*Nectar/s);
+});
+
+test('guided dates and whitespace are validated and edits retain the draft', async t => {
+  const p=await open(t);await tools(p);await p.locator('#guide-item').fill('   ');await p.locator('#prepare-search').click();
+  assert.equal(await p.locator('#tools-dialog').evaluate(e=>e.open),true);
+  await p.locator('#guide-item').fill('A laptop');await p.locator('#guide-kind').selectOption('hotel');await p.locator('#guide-destination').fill('York');
+  const date=await p.evaluate(()=>{const d=new Date();d.setDate(d.getDate()+20);return d.toISOString().slice(0,10)});
+  await p.locator('#guide-start').fill(date);await p.locator('#guide-end').fill(date);await p.locator('#prepare-search').click();
+  assert.equal(await p.locator('#guide-end').evaluate(e=>e.validity.valid),false);
+  await p.locator('#guide-end').fill('');await p.locator('#prepare-search').click();assert.equal(await p.locator('#tools-dialog').evaluate(e=>e.open),false);
+  await tools(p);await p.locator('#guide-kind').selectOption('purchase');assert.equal(await p.locator('#guide-item').inputValue(),'A laptop');
+});
+
+test('saved recommendations persist, favourite, show snapshots and prepare a fresh search', async t => {
+  const p=await open(t);await choose(p,'#ba-amex');await p.evaluate(answer=>window.__answer={message:{content:answer}},comparisonAnswer);
+  await ask(p,'Compare shops');await idle(p);await p.getByRole('button',{name:'Save recommendation',exact:true}).click();
+  await p.reload();await p.waitForFunction(()=>Boolean(window.AviosFeatures));await tools(p,'saved');assert.equal(await p.locator('#saved-count').textContent(),'1');
+  await p.locator('.saved-item summary').click();await p.locator('.saved-item .comparison-card').first().waitFor();
+  assert.match(await p.locator('.saved-item').textContent(),/snapshot.*changed/s);assert.match(await p.locator('.saved-item').textContent(),/BA Amex/);
+  await p.locator('.saved-item [data-favourite]').click();await p.locator('#saved-favourites').click();assert.equal(await p.locator('.saved-item').count(),1);
+  await p.getByRole('button',{name:'Research again',exact:true}).click();assert.equal(await p.locator('#chat-input').inputValue(),'Compare shops');
+  assert.equal(await p.evaluate(()=>window.__calls.length),0,'reopening does not send research');assert.equal(await p.locator('#ba-amex').isChecked(),true);
+  await tools(p,'saved');await p.getByRole('button',{name:'Delete: Compare shops',exact:true}).click();assert.equal(await p.locator('#saved-count').textContent(),'0');
+});
+
+test('own-AI searches and pasted comparisons can be saved without reading a provider account', async t => {
+  const p=await open(t);await p.locator('[data-mode="own"]').click();await fakePopup(p);await ask(p,'A dinner in Soho');await idle(p);
+  await p.locator('#save-external-search').click();await saveManual(p,'A pasted comparison',comparisonAnswer);
+  assert.equal(await p.locator('#saved-count').textContent(),'2');await p.locator('.saved-item summary').filter({hasText:'A pasted comparison'}).click();
+  await p.locator('.saved-answer .comparison-card').first().waitFor();assert.equal(await p.locator('.saved-answer .comparison-card').count(),2);
+  assert.equal(await p.evaluate(()=>window.__calls.length),0);
+});
+
+test('exports round-trip, imports merge, and invalid files leave saved items intact', async t => {
+  const p=await open(t);await saveManual(p,'A saved search');const downloadPromise=p.waitForEvent('download');await p.locator('#export-saved').click();
+  const download=await downloadPromise;const bytes=readFileSync(await download.path());const data=JSON.parse(bytes);
+  assert.equal(data.version,1);assert.equal(data.items.length,1);assert.equal(data.items[0].question,'A saved search');
+  assert.deepEqual(Object.keys(data.items[0]).sort(),['answer','createdAt','favourite','id','profile','question']);
+  const imported={...data.items[0],id:'new-id',question:'Imported <img src=x onerror=alert(1)>',answer:comparisonAnswer};
+  await p.locator('#saved-file').setInputFiles({name:'archive.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify({version:1,items:[imported]}))});
+  await p.waitForFunction(()=>document.getElementById('saved-count').textContent==='2');assert.equal(await p.locator('#saved-items img').count(),0);
+  await p.locator('#saved-file').setInputFiles({name:'same.json',mimeType:'application/json',buffer:bytes});await p.waitForFunction(()=>document.getElementById('tools-status').textContent.includes('Imported 0'));
+  for(const buffer of [Buffer.from('{bad json'),Buffer.from(JSON.stringify({version:1,items:[{...imported,profile:{baAmex:true,baPremium:true}}]})),Buffer.alloc(1000001,32)]) {
+    await p.locator('#saved-file').setInputFiles({name:'bad.json',mimeType:'application/json',buffer});await p.waitForFunction(()=>document.getElementById('tools-status').textContent.startsWith('Import failed'));
+    assert.equal(await p.locator('#saved-count').textContent(),'2');
+  }
+});
+
+test('blocked storage keeps explicit saves for this visit and explains export recovery', async t => {
+  const p=await open(t,{blockedStorage:true});await saveManual(p,'Keep this locally');assert.equal(await p.locator('#saved-count').textContent(),'1');
+  assert.match(await p.locator('#tools-status').textContent(),/visit only.*export/s);
+  await p.locator('#close-tools').click();await p.reload();await p.waitForFunction(()=>Boolean(window.AviosFeatures));await tools(p,'saved');
+  assert.equal(await p.locator('#saved-count').textContent(),'0');
+});
+
+test('calculator separates card, conversion, portal and fees using user-confirmed rates', async t => {
+  const p=await open(t);await choose(p,'#ba-premium');await calculator(p,{spend:'100.01',rate:'1.5',fees:'5'});
+  assert.equal(await p.locator('#calc-card').inputValue(),'baPremium');await p.locator('#calc-portal').check();
+  await p.locator('#calc-portal-spend').fill('80');await p.locator('#calc-portal-rate').fill('2');await p.locator('#calc-portal-source').fill('https://example.com/portal');await p.locator('#calc-portal-confirm').check();
+  await p.locator('#calculator-form button[type="submit"]').click();assert.match(await p.locator('#calculator-result h3').textContent(),/310\.02 estimated Avios/);
+  assert.match(await p.locator('#calculator-result').textContent(),/£105\.01.*fees: £5\.00/s);assert.match(await p.locator('#calculator-result').textContent(),/user-confirmed, not independently verified/);
+  await p.getByRole('button',{name:'Save estimate',exact:true}).click();assert.equal(await p.locator('#saved-count').textContent(),'1');
+  await p.locator('#close-tools').click();await choose(p,'#revolut');await p.locator('#revolut-plan').selectOption('Ultra');await tools(p,'calculator');
+  await p.locator('#calc-card').selectOption('revolut');assert.equal(await p.locator('#calc-rate').inputValue(),'');
+  await calculator(p,{spend:'100',rate:'0.2',conversion:'0.5'});await p.locator('#calc-portal').uncheck();await p.locator('#calculator-form button[type="submit"]').click();
+  assert.match(await p.locator('#calculator-result h3').textContent(),/^10 estimated Avios/);assert.match(await p.locator('#calculator-result').textContent(),/Revolut Ultra.*20 RevPoints.*10 Avios/s);
+});
+
+test('calculator rejects stale and unsafe terms, validates stacking spend and clears old estimates', async t => {
+  const p=await open(t);await calculator(p);await p.locator('#calc-source').fill('http://example.com/terms');await p.locator('#calc-confirm').check();
+  await p.locator('#calculator-form button[type="submit"]').click();assert.equal(await p.locator('#calc-source').evaluate(e=>e.validity.valid),false);
+  await p.locator('#calc-source').fill('https://example.com/terms');await p.locator('#calc-date').fill('2000-01-01');await p.locator('#calc-confirm').check();
+  await p.locator('#calculator-form button[type="submit"]').click();assert.equal(await p.locator('#calc-date').evaluate(e=>e.validity.valid),false);
+  await p.locator('#calc-date').fill(await p.locator('#calc-date').getAttribute('max'));await p.locator('#calc-confirm').check();await p.locator('#calc-portal').check();
+  await p.locator('#calc-portal-spend').fill('101');await p.locator('#calc-portal-rate').fill('1');await p.locator('#calc-portal-source').fill('https://example.com/portal');await p.locator('#calc-portal-confirm').check();
+  await p.locator('#calculator-form button[type="submit"]').click();assert.equal(await p.locator('#calc-portal-spend').evaluate(e=>e.validity.valid),false);
+  await p.locator('#calc-portal-spend').fill('100');await p.locator('#calc-portal-confirm').check();await p.locator('#calculator-form button[type="submit"]').click();
+  assert.equal(await p.locator('#calculator-result').isVisible(),true);await p.locator('#calc-rate').fill('2');assert.equal(await p.locator('#calculator-result').isVisible(),false);assert.equal(await p.locator('#calc-confirm').isChecked(),false);
+});
+
+test('tools trap focus, support arrow-key tabs, pass accessibility checks and fit a small phone', async t => {
+  const p=await open(t,{viewport:{width:320,height:568},hasTouch:true});await tools(p);await p.locator('#tab-guide').focus();await p.keyboard.press('ArrowRight');
+  assert.equal(await p.locator('#tab-calculator').getAttribute('aria-selected'),'true');await p.keyboard.press('End');assert.equal(await p.locator('#tab-saved').getAttribute('aria-selected'),'true');
+  await p.evaluate(axe.source);
+  for(const tab of ['guide','calculator','saved']) {
+    await p.locator('#tab-'+tab).click();const result=await p.evaluate(()=>axe.run(document,{runOnly:{type:'tag',values:['wcag2a','wcag2aa','wcag21aa']}}));
+    assert.deepEqual(result.violations.map(v=>({id:v.id,targets:v.nodes.map(n=>n.target)})),[]);assert.ok(await p.locator('#tools-dialog').evaluate(e=>e.scrollWidth<=e.clientWidth));
+    const rect=await p.locator('#close-tools').boundingBox();assert.ok(rect.y>=0&&rect.y+rect.height<=568);
+  }
+  await p.keyboard.press('Escape');assert.equal(await p.locator('#tools-dialog').evaluate(e=>e.open),false);assert.equal(await p.locator('#open-tools').evaluate(e=>e===document.activeElement),true);
+});
+
+test('rate checks prepare a personalised draft and tools cannot replace a pending search', async t => {
+  const p=await open(t);await choose(p,'#revolut');await p.locator('#revolut-plan').selectOption('Metal');
+  await tools(p,'calculator');await p.locator('#research-rates').click();
+  assert.match(await p.locator('#chat-input').inputValue(),/Revolut Metal.*official issuer sources/s);
+  assert.equal(await p.evaluate(()=>window.__calls.length),0);
+  await p.evaluate(()=>window.__pending=true);await p.locator('#send-button').click();await p.waitForFunction(()=>Boolean(window.__resolveChat));
+  await tools(p,'guide');assert.equal(await p.locator('#prepare-search').isDisabled(),true);
+  await p.locator('#tab-calculator').click();assert.equal(await p.locator('#research-rates').isDisabled(),true);
+  await p.locator('#close-tools').click();await p.locator('#clear-chat').click();
+  await tools(p,'guide');assert.equal(await p.locator('#prepare-search').isDisabled(),false);
+});
+
+test('saved limits do not evict old items and delete-all requires an explicit confirmation', async t => {
+  const profile={};
+  const items=Array.from({length:30},(_,n)=>({id:'item-'+n,question:'Saved search '+n,answer:'',createdAt:'2026-01-01T12:00:00Z',profile,favourite:false}));
+  const p=await open(t,{storage:{'aviosmaxxing-saved-v1':JSON.stringify({version:1,items})}});
+  await saveManual(p,'One too many');assert.equal(await p.locator('#saved-count').textContent(),'30');
+  assert.match(await p.locator('#tools-status').textContent(),/30 saved items/);
+  p.once('dialog',d=>d.dismiss());await p.locator('#delete-saved').click();assert.equal(await p.locator('#saved-count').textContent(),'30');
+  p.once('dialog',d=>d.accept());await p.locator('#delete-saved').click();assert.equal(await p.locator('#saved-count').textContent(),'0');
+});
+
+test('small fractional rates keep readable arithmetic and changing cards clears old validation and stacking consent', async t => {
+  const p=await open(t);await choose(p,'#ba-amex');await choose(p,'#barclaycard-plus');await calculator(p,{rate:'0.004'});
+  await p.locator('#calculator-form button[type="submit"]').click();
+  assert.match(await p.locator('#calculator-result').textContent(),/£100\.00 × 0\.004 = 0\.4 Avios/);
+  await p.locator('#calc-source').fill('http://example.com/invalid');await p.locator('#calc-confirm').check();await p.locator('#calculator-form button[type="submit"]').click();
+  assert.equal(await p.locator('#calc-source').evaluate(e=>e.validity.valid),false);
+  await p.locator('#calc-card').selectOption('barclaycardPlus');
+  assert.equal(await p.locator('#calc-source').evaluate(e=>e.validity.valid),true);
+  assert.equal(await p.locator('#calc-confirm').isChecked(),false);
+  assert.equal(await p.locator('#calc-portal-confirm').isChecked(),false);
+});
+
+test('selected-card tools fit narrow Safari screens and a keyboard-sized viewport', async t => {
+  const p=await open(t,{viewport:{width:320,height:568},hasTouch:true});
+  for(const id of ['#ba-premium','#barclaycard-plus','[data-profile="membershipRewards"]','#revolut'])await choose(p,id);
+  await p.locator('#done-rewards').click();await tools(p,'calculator');
+  for(const key of ['baPremium','barclaycardPlus','membershipRewards','revolut','custom']) {
+    await p.locator('#calc-card').selectOption(key);
+    assert.ok(await p.locator('#tools-dialog').evaluate(e=>e.scrollWidth<=e.clientWidth),key+' has no horizontal overflow');
+  }
+  await p.setViewportSize({width:390,height:430});await p.locator('#calc-source').focus();
+  const dialog=await p.locator('#tools-dialog').boundingBox();assert.ok(dialog.y>=0&&dialog.y+dialog.height<=430);
+  const close=await p.locator('#close-tools').boundingBox();assert.ok(close.y>=0&&close.y+close.height<=430);
+  await p.locator('#close-tools').click();assert.equal(await p.locator('#tools-dialog').evaluate(e=>e.open),false);
+});

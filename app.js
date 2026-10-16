@@ -214,6 +214,7 @@ HOW TO HANDLE IT
 - If live search is unavailable to you, say so clearly and do not pretend current prices or reward rates are verified.
 
 OUTPUT
+${window.AviosFeatures?.comparisonInstructions || ''}
 Lead with the recommendation. Then give a concise comparison of the best routes, an Avios/rewards breakdown, any important caveats, and direct sources. Keep the focus on what the user should actually do.`;
 }
 
@@ -281,6 +282,7 @@ async function sendToExternalAi(message) {
   openProvider.href = provider.url;
   openProvider.textContent = `Open ${provider.label}`;
   promptRecovery.hidden = false;
+  window.AviosFeatures?.offerExternalSave();
   handoffStatus.textContent = 'Preparing your prompt…';
 
   let tab = null;
@@ -510,6 +512,7 @@ DECISION LOGIC
 - Do not recommend paying substantially more merely to collect points without explaining the trade-off.
 
 ANSWER STYLE
+${window.AviosFeatures?.comparisonInstructions || ''}
 - Be concise and decision-oriented. Do not drown the user in background information.
 - Start by answering what they actually asked.
 - For an exact item, normally use: Best route → Alternatives → Avios calculation → What to do.
@@ -541,6 +544,7 @@ profileInputs.forEach((el) => {
     saveProfile();
     updateProfileSummary();
     refreshExternalPrompt();
+    window.AviosFeatures?.profileChanged();
   });
 });
 
@@ -549,6 +553,7 @@ if (revolutPlan) {
     saveProfile();
     updateProfileSummary();
     refreshExternalPrompt();
+    window.AviosFeatures?.profileChanged();
   });
 }
 
@@ -699,7 +704,8 @@ function addMessage(role, text, profileSnapshot = null) {
 
     const content = document.createElement('div');
     content.className = 'answer-content';
-    content.innerHTML = renderAssistantText(text);
+    if (window.AviosFeatures) window.AviosFeatures.renderAnswer(content, text);
+    else content.innerHTML = renderAssistantText(text);
     bubble.appendChild(content);
   } else {
     bubble.textContent = text;
@@ -737,6 +743,7 @@ function revealMessage(row) {
 
 function setBusy(value) {
   busy = value;
+  window.AviosFeatures?.setBusy(value);
   sendButton.disabled = value;
   input.disabled = value;
   authButton.disabled = value;
@@ -868,7 +875,8 @@ async function sendMessage(message) {
     if (!answer) throw new Error('The AI returned an empty response.');
 
     typing.remove();
-    addMessage('assistant', answer, profileSnapshot);
+    const answerRow = addMessage('assistant', answer, profileSnapshot);
+    window.AviosFeatures?.offerSave(answerRow, { question: cleaned, answer, profile: profileSnapshot });
     conversation.push({ role: 'user', content: cleaned });
     conversation.push({ role: 'assistant', content: answer });
     conversation = conversation.slice(-MAX_HISTORY_TURNS);
@@ -962,6 +970,7 @@ function updateViewport() {
   if (viewport && viewport.scale !== 1) return; // Preserve pinch zoom behaviour.
   const height = viewport?.height || window.innerHeight;
   document.documentElement.style.setProperty('--app-viewport-height', `${height}px`);
+  document.documentElement.style.setProperty('--app-viewport-top', `${viewport?.offsetTop || 0}px`);
   const inset = document.activeElement === input && viewport
     ? Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop) : 0;
   document.documentElement.style.setProperty('--keyboard-inset', `${inset}px`);
