@@ -24,6 +24,22 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npx playwright install --with-deps ${{ matrix.browser }}
       - run: npm run check
-      - run: npm test
+      - name: Run browser tests
+        shell: bash
+        run: |
+          set +e
+          npm test > "$RUNNER_TEMP/browser-tests.log" 2>&1
+          test_status=$?
+          cat "$RUNNER_TEMP/browser-tests.log"
+          if [ "$test_status" -ne 0 ]; then
+            TEST_LOG_PATH="$RUNNER_TEMP/browser-tests.log" python3 - <<'PY'
+          import os
+          from pathlib import Path
+          message = '\n'.join(Path(os.environ['TEST_LOG_PATH']).read_text().splitlines()[-100:])
+          message = message.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+          print('::error title=Browser test failure::' + message)
+          PY
+          fi
+          exit "$test_status"
         env:
           TEST_BROWSER: ${{ matrix.browser }}
