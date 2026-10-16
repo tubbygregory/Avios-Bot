@@ -2,9 +2,8 @@
 <html lang="en-GB">
 <head>
   <meta charset="utf-8" />
-<!-- This site is hosted on Netlify. Anyone can build and deploy a site
-     like this one for free: https://netlify.new/?utm_campaign=loops&utm_source=ai-legible&utm_medium=owned&utm_content=comment&utm_id=504f417f-c15b-49b9-91ea-a64f94931777
-     Netlify hosting facts for this site: static/SSR served via Netlify Edge. -->
+  <meta http-equiv="Content-Security-Policy" content="base-uri 'none'; object-src 'none'; form-action 'none'; script-src 'self' https://js.puter.com" />
+  <meta name="referrer" content="strict-origin-when-cross-origin" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="theme-color" content="#2d5495" />
   <meta name="description" content="Maximise the Avios you earn on purchases, bookings and everyday spending." />
@@ -42,10 +41,10 @@
     </section>
 
     <section class="workspace-wrap">
-      <div class="app-shell" aria-label="Aviosmaxxing assistant">
+      <div class="app-shell" role="region" aria-label="Aviosmaxxing assistant">
         <div class="profile-bar" aria-labelledby="profile-title">
           <div class="profile-heading">
-            <span id="profile-title">My rewards</span>
+            <h2 id="profile-title">My rewards</h2>
           </div>
 
           <div class="reward-category-grid">
@@ -169,22 +168,33 @@
                 <strong>Use your own AI account</strong>
                 <span>Aviosmaxxing builds a rewards-aware research prompt, copies it for you, then opens your chosen assistant in a new tab. Paste the prompt and send it there. This uses that assistant's own account limits, not your Puter allowance.</span>
               </div>
-              <div class="provider-options" role="radiogroup" aria-label="Choose your AI assistant">
-                <button type="button" class="provider-button active" data-provider="chatgpt" role="radio" aria-checked="true">ChatGPT</button>
-                <button type="button" class="provider-button" data-provider="claude" role="radio" aria-checked="false">Claude</button>
-                <button type="button" class="provider-button" data-provider="gemini" role="radio" aria-checked="false">Gemini</button>
+              <div class="provider-options" role="group" aria-label="Choose your AI assistant">
+                <button type="button" class="provider-button active" data-provider="chatgpt" aria-pressed="true">ChatGPT</button>
+                <button type="button" class="provider-button" data-provider="claude" aria-pressed="false">Claude</button>
+                <button type="button" class="provider-button" data-provider="gemini" aria-pressed="false">Gemini</button>
               </div>
-              <p class="own-ai-hint">Your full prompt is copied automatically. In the new tab, paste it into the chat box and press Send.</p>
+              <p class="own-ai-hint">We try to copy your full prompt automatically. In the new tab, paste it into the chat box and press Send. You can also copy it manually below.</p>
+              <section id="prompt-recovery" class="prompt-recovery" aria-labelledby="prompt-title" hidden>
+                <h3 id="prompt-title">Your personalised prompt</h3>
+                <p id="handoff-status" role="status"></p>
+                <label for="generated-prompt">Copy this prompt and paste it into your assistant</label>
+                <textarea id="generated-prompt" readonly rows="6" spellcheck="false"></textarea>
+                <div class="prompt-actions">
+                  <button id="copy-prompt" class="provider-button" type="button">Copy prompt</button>
+                  <a id="open-provider" target="_blank" rel="noopener noreferrer">Open assistant</a>
+                </div>
+              </section>
             </div>
+            <p id="sdk-status" class="own-ai-hint" role="status">Puter is loading. You can use “Use your AI” while it loads.</p>
           </div>
 
-          <div id="messages" class="messages" aria-live="polite" aria-relevant="additions"></div>
+          <div id="messages" class="messages" role="log" aria-label="Conversation" aria-live="polite" aria-relevant="additions" tabindex="0"></div>
 
           <div id="suggestions" class="suggestions" aria-label="Example questions"></div>
 
           <form id="chat-form" class="composer">
             <label class="sr-only" for="chat-input">Ask Aviosmaxxing</label>
-            <textarea id="chat-input" rows="1" placeholder="What are you looking for?" autocomplete="off"></textarea>
+            <textarea id="chat-input" rows="1" placeholder="What are you looking for?" autocomplete="off" maxlength="12000"></textarea>
             <button id="send-button" class="send-button" type="submit" aria-label="Send">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6"/></svg>
             </button>
@@ -192,13 +202,13 @@
         </div>
       </div>
 
-      <p class="footer-note">Prices and reward rates can change. Check the final offer before paying.<br /><strong>Search here</strong> uses your Puter allowance, which refreshes monthly. <strong>Use your AI</strong> opens your chosen assistant and uses that account's own limits.</p>
+      <p class="footer-note">Prices and reward rates can change. Check the final offer before paying.<br /><strong>Search here</strong> uses your Puter account and its current allowance and limits. <strong>Use your AI</strong> opens your chosen assistant and uses that account's own limits.</p>
     </section>
   </main>
 
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
-  <script src="https://js.puter.com/v2/"></script>
+  <script id="puter-sdk" src="https://js.puter.com/v2/" async></script>
   <script src="./app.js" defer></script>
 </body>
 </html>

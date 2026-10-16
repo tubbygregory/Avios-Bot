@@ -18,12 +18,19 @@ const modeButtons = [...document.querySelectorAll('[data-mode]')];
 const ownAiPanel = document.getElementById('own-ai-panel');
 const providerButtons = [...document.querySelectorAll('[data-provider]')];
 const toast = document.getElementById('toast');
+const promptRecovery = document.getElementById('prompt-recovery');
+const generatedPrompt = document.getElementById('generated-prompt');
+const handoffStatus = document.getElementById('handoff-status');
+const copyPromptButton = document.getElementById('copy-prompt');
+const openProvider = document.getElementById('open-provider');
+const sdkStatus = document.getElementById('sdk-status');
 
 const PROFILE_KEY = 'avios-optimiser-profile-v2';
 const MODEL = 'perplexity/sonar-pro-search';
 const MAX_HISTORY_TURNS = 8;
 let conversation = [];
 let busy = false;
+let activeOperation = null;
 const AI_MODE_KEY = 'aviosmaxxing-ai-mode';
 const AI_PROVIDER_KEY = 'aviosmaxxing-ai-provider';
 const PROVIDERS = {
@@ -34,6 +41,7 @@ const PROVIDERS = {
 let currentMode = 'puter';
 let currentProvider = 'chatgpt';
 let toastTimer = null;
+let toastHideTimer = null;
 
 const EXAMPLE_PROMPTS = [
   { label: 'Upgrade my iPhone 16', prompt: 'I want an upgrade to my phone. I currently have an iPhone 16.' },
@@ -102,13 +110,14 @@ function populateExamplePrompts() {
 function showToast(message, tone = 'default') {
   if (!toast) return;
   window.clearTimeout(toastTimer);
+  window.clearTimeout(toastHideTimer);
   toast.textContent = message;
   toast.dataset.tone = tone;
   toast.hidden = false;
   requestAnimationFrame(() => toast.classList.add('show'));
   toastTimer = window.setTimeout(() => {
     toast.classList.remove('show');
-    window.setTimeout(() => { toast.hidden = true; }, 180);
+    toastHideTimer = window.setTimeout(() => { toast.hidden = true; }, 180);
   }, 4200);
 }
 
@@ -120,6 +129,7 @@ function setMode(mode, persist = true) {
     button.setAttribute('aria-pressed', String(selected));
   });
   if (ownAiPanel) ownAiPanel.hidden = currentMode !== 'own';
+  sdkStatus.hidden = currentMode !== 'puter' || Boolean(window.puter);
   input.placeholder = currentMode === 'own'
     ? `What should ${PROVIDERS[currentProvider].label} help you maximise?`
     : 'What are you looking for?';
@@ -129,15 +139,20 @@ function setMode(mode, persist = true) {
 }
 
 function setProvider(provider, persist = true) {
-  if (!PROVIDERS[provider]) provider = 'chatgpt';
+  if (!Object.hasOwn(PROVIDERS, provider)) provider = 'chatgpt';
   currentProvider = provider;
   providerButtons.forEach((button) => {
     const selected = button.dataset.provider === currentProvider;
     button.classList.toggle('active', selected);
-    button.setAttribute('aria-checked', String(selected));
+    button.setAttribute('aria-pressed', String(selected));
   });
   if (currentMode === 'own') {
     input.placeholder = `What should ${PROVIDERS[currentProvider].label} help you maximise?`;
+  }
+  if (!promptRecovery.hidden) {
+    openProvider.href = PROVIDERS[currentProvider].url;
+    openProvider.textContent = `Open ${PROVIDERS[currentProvider].label}`;
+    handoffStatus.textContent = `Your prompt is ready below. Copy it, then open ${PROVIDERS[currentProvider].label}.`;
   }
   if (persist) {
     try { localStorage.setItem(AI_PROVIDER_KEY, currentProvider); } catch (_) {}
@@ -199,24 +214,46 @@ OUTPUT
 Lead with the recommendation. Then give a concise comparison of the best routes, an Avios/rewards breakdown, any important caveats, and direct sources. Keep the focus on what the user should actually do.`;
 }
 
-async function copyText(text) {
+// Bound local waits without pretending to cancel work already sent to Puter.
+function waitFor(promise, signal, milliseconds, message) {
+  return new Promise((resolve, reject) => {
+    let timer;
+    const cleanup = () => {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', abort);
+    };
+    const abort = () => { cleanup(); reject(new DOMException('Cancelled', 'AbortError')); };
+    // Attach handlers even if already aborted so late rejections are consumed.
+    Promise.resolve(promise).then(
+      value => { cleanup(); resolve(value); },
+      error => { cleanup(); reject(error); }
+    );
+    if (signal.aborted) return abort();
+    signal.addEventListener('abort', abort, { once: true });
+    timer = setTimeout(() => { cleanup(); reject(new Error(message)); }, milliseconds);
+  });
+}
+
+async function copyText(text, signal) {
   try {
-    await navigator.clipboard.writeText(text);
+    await waitFor(navigator.clipboard.writeText(text), signal, 4000, 'Clipboard timed out.');
     return true;
   } catch (_) {
+    signal.throwIfAborted();
+    const previousFocus = document.activeElement;
+    const area = document.createElement('textarea');
     try {
-      const area = document.createElement('textarea');
       area.value = text;
       area.setAttribute('readonly', '');
-      area.style.position = 'fixed';
-      area.style.opacity = '0';
+      area.className = 'clipboard-buffer';
       document.body.appendChild(area);
       area.select();
-      const copied = document.execCommand('copy');
-      area.remove();
-      return copied;
+      return document.execCommand('copy');
     } catch (_) {
       return false;
+    } finally {
+      area.remove();
+      previousFocus?.focus({ preventScroll: true });
     }
   }
 }
@@ -225,29 +262,51 @@ async function sendToExternalAi(message) {
   const cleaned = message.trim();
   if (!cleaned || busy) return;
 
+  const operation = new AbortController();
+  activeOperation = operation;
+  setBusy(true);
   const provider = PROVIDERS[currentProvider];
   const prompt = buildExternalAiPrompt(cleaned);
+  generatedPrompt.value = prompt;
+  openProvider.href = provider.url;
+  openProvider.textContent = `Open ${provider.label}`;
+  promptRecovery.hidden = false;
+  handoffStatus.textContent = 'Preparing your prompt…';
 
-  // Open synchronously from the user's action so browsers are less likely to block it.
-  const tab = window.open('about:blank', '_blank');
-  if (tab) {
-    try { tab.opener = null; } catch (_) {}
-  }
-
-  const copied = await copyText(prompt);
-  if (tab) {
-    tab.location.href = provider.url;
-  } else {
-    showToast(`Your browser blocked the ${provider.label} tab. Allow pop-ups and try again.`, 'error');
-    return;
-  }
-
-  input.value = '';
-  autoGrow();
-  if (copied) {
-    showToast(`Opened ${provider.label}. Your Aviosmaxxing prompt is copied — paste it into the new chat and press Send.`);
-  } else {
-    showToast(`Opened ${provider.label}, but your browser would not copy the prompt automatically.`, 'error');
+  let tab = null;
+  try {
+    // Open and navigate during the gesture; clipboard permissions must not delay it.
+    // The destination comes only from the fixed provider list above.
+    try {
+      tab = window.open('about:blank', '_blank');
+      if (tab) {
+        tab.opener = null;
+        tab.location.replace(provider.url);
+      }
+    } catch (_) {
+      try { tab?.close(); } catch (_) {}
+      tab = null;
+    }
+    const copied = await copyText(prompt, operation.signal);
+    if (activeOperation !== operation) return;
+    const copyStatus = copied ? 'Prompt copied.' : 'Automatic copying was unavailable. Select and copy the prompt below.';
+    const tabStatus = tab ? `Paste it into ${provider.label} and send it there.` : `The new tab was blocked. Use “Open ${provider.label}” below.`;
+    handoffStatus.textContent = `${copyStatus} ${tabStatus}`;
+    showToast(handoffStatus.textContent, copied && tab ? 'default' : 'error');
+    // Keep the original question for retry when either step failed.
+    if (copied && tab) {
+      input.value = '';
+      autoGrow();
+    }
+  } catch (error) {
+    if (activeOperation === operation && error?.name !== 'AbortError') {
+      handoffStatus.textContent = 'Select and copy the prompt below, then open your assistant.';
+    }
+  } finally {
+    if (activeOperation === operation) {
+      activeOperation = null;
+      setBusy(false);
+    }
   }
 }
 
@@ -260,16 +319,25 @@ function loadProfile() {
   try {
     const stored = JSON.parse(localStorage.getItem(PROFILE_KEY) || '{}');
     profileInputs.forEach((el) => {
-      el.checked = Boolean(stored[el.dataset.profile]);
+      el.checked = stored?.[el.dataset.profile] === true;
     });
-    if (revolutPlan && stored.revolutPlan) revolutPlan.value = stored.revolutPlan;
+    if ([...revolutPlan.options].some(option => option.value === stored?.revolutPlan)) {
+      revolutPlan.value = stored.revolutPlan;
+    }
   } catch (_) {}
+  // Old or edited storage can contain both variants; prefer the premium option.
+  if (baPremium.checked) baAmex.checked = false;
+  if (barclaycardPlus.checked) barclaycardAvios.checked = false;
   updateRewardControls();
 }
 
 function saveProfile() {
   const profile = getProfile();
-  localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
+  try {
+    localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
+  } catch (_) {
+    showToast('Your rewards work for this visit, but this browser could not save them.', 'error');
+  }
 }
 
 function getProfile() {
@@ -619,7 +687,7 @@ function addMessage(role, text, profileSnapshot = null) {
 function addTyping() {
   const row = document.createElement('div');
   row.className = 'message assistant';
-  row.innerHTML = '<div class="bubble"><span class="typing" aria-label="Researching"><span></span><span></span><span></span></span></div>';
+  row.innerHTML = '<div class="bubble"><span class="typing"><span aria-hidden="true"></span><span aria-hidden="true"></span><span aria-hidden="true"></span><span class="sr-only">Researching…</span></span></div>';
   messagesEl.appendChild(row);
   messagesEl.scrollTop = messagesEl.scrollHeight;
   return row;
@@ -630,6 +698,10 @@ function setBusy(value) {
   sendButton.disabled = value;
   input.disabled = value;
   authButton.disabled = value;
+  [...modeButtons, ...providerButtons, ...profileInputs, revolutPlan, copyPromptButton,
+    ...suggestions.querySelectorAll('button')].forEach(control => { control.disabled = value; });
+  form.setAttribute('aria-busy', String(value));
+  sendButton.setAttribute('aria-label', value ? 'Working' : 'Send');
 }
 
 function getResponseText(response) {
@@ -642,13 +714,13 @@ function getResponseText(response) {
       .join('\n')
       .trim();
   }
-  if (content == null) return '';
-  return String(content).trim();
+  return '';
 }
 
 function friendlyPuterError(error) {
-  const code = String(error?.error || error?.code || '').toLowerCase();
-  const message = String(error?.msg || error?.message || error || '').trim();
+  const detail = error?.error && typeof error.error === 'object' ? error.error : error;
+  const code = String(detail?.error || detail?.code || '').toLowerCase();
+  const message = String(detail?.msg || detail?.message || (typeof detail === 'string' ? detail : '')).trim();
   const combined = `${code} ${message}`.toLowerCase();
 
   if (combined.includes('auth_window_closed') || combined.includes('cancel')) {
@@ -657,8 +729,14 @@ function friendlyPuterError(error) {
   if (combined.includes('popup_blocked')) {
     return 'Your browser blocked the Puter sign-in window. Allow pop-ups for this site and try again.';
   }
+  if (combined.includes('timed out') || combined.includes('timeout')) {
+    return message || 'Puter timed out. Check your connection and try again, or switch to “Use your AI”.';
+  }
   if (combined.includes('allowance') || combined.includes('quota') || combined.includes('billing') || combined.includes('payment') || combined.includes('insufficient')) {
-    return 'Your Puter AI allowance has been used up. The free allowance refreshes monthly, so depending on where you are in your monthly cycle the wait can be up to about 31 days. You can also add usage through Puter to continue sooner.';
+    return 'Puter reports an allowance or billing limit. Check your Puter account for the current limit and any reset or payment options. You can also switch to “Use your AI”.';
+  }
+  if (combined.includes('rate_limit') || combined.includes('rate limit') || combined.includes('too many requests') || combined.includes('429')) {
+    return 'Puter is limiting requests. Wait a little before trying again, or switch to “Use your AI”.';
   }
   if (message) return `Puter could not complete the search: ${message}`;
   return 'Puter could not complete the search. Please try again.';
@@ -684,10 +762,11 @@ async function updateAuthUI() {
   }
 }
 
-async function ensurePuterSignedIn() {
+async function ensurePuterSignedIn(signal) {
   if (!window.puter) throw new Error('Puter.js did not load. Check your connection and refresh the page.');
   if (!puter.auth.isSignedIn()) {
-    await puter.auth.signIn({ attempt_temp_user_creation: true });
+    await waitFor(puter.auth.signIn({ attempt_temp_user_creation: true }), signal, 120000,
+      'Sign-in timed out. Close the Puter sign-in window and try again.');
     await updateAuthUI();
   }
 }
@@ -700,61 +779,24 @@ ${cleaned}
 Interpret this naturally in the context of the conversation. Infer what outcome the user wants before searching. If they describe something they already own and ask for an upgrade, benchmark recommendations against that current item and do not simply recommend it back to them. If the request is broad (for example, "dinner out in London"), make sensible assumptions, research a small set of strong current choices, and include the best verified Avios/reward route for booking or paying. If it is an exact product, research the best current UK buying route. Complete the useful research in this turn rather than offering to do it later.`;
 }
 
-function buildMessages(cleaned) {
+function buildMessages(cleaned, profile) {
   const history = conversation.slice(-MAX_HISTORY_TURNS);
   return [
-    { role: 'system', content: systemPrompt(getProfile()) },
+    { role: 'system', content: systemPrompt(profile) },
     ...history,
     { role: 'user', content: optimisationTaskMessage(cleaned) }
   ];
 }
 
-function looksLikeDeferredShoppingAnswer(answer) {
-  const text = String(answer || '').toLowerCase();
-  const deferSignals = [
-    'i can compare current',
-    'i can compare prices',
-    'if you want, i can compare',
-    'if you would like, i can compare',
-    'i would need live retailer',
-    "i'd need live retailer",
-    'need live retailer results',
-    'cannot reliably calculate the best buying route',
-    "can't reliably calculate the best buying route",
-    'could compare current uk prices',
-    'can compare current uk prices'
-  ];
-  return deferSignals.some((signal) => text.includes(signal));
-}
-
-async function runShoppingResearch(cleaned) {
-  const first = await puter.ai.chat(buildMessages(cleaned), {
+async function runShoppingResearch(messages, signal) {
+  // One paid request per submission. Never silently spend more allowance on a retry.
+  const response = await waitFor(puter.ai.chat(messages, {
     model: MODEL,
     temperature: 0.1,
     max_tokens: 2600
-  });
-  let answer = getResponseText(first);
-
-  // If the search model ever falls back to describing the item and offers to
-  // research buying routes later, automatically force a second research pass.
-  if (looksLikeDeferredShoppingAnswer(answer)) {
-    const retryMessages = [
-      ...buildMessages(cleaned),
-      { role: 'assistant', content: answer },
-      {
-        role: 'user',
-        content: "That did not complete the user\'s actual optimisation task. Infer their underlying goal from the original wording and conversation, then research it now. If this is an upgrade, compare against what they currently own and recommend only meaningful upgrades. If it is dining, travel or another experience, recommend suitable current options and verify the best available rewards route for booking/paying. If it is an exact product, compare credible UK buying routes. Give a concrete recommendation, verified reward arithmetic where applicable, useful alternatives and direct sources. Do not defer the core research."
-      }
-    ];
-    const retry = await puter.ai.chat(retryMessages, {
-      model: MODEL,
-      temperature: 0.1,
-      max_tokens: 3000
-    });
-    answer = getResponseText(retry);
-  }
-
-  return answer;
+  }), signal, 120000,
+  'The search timed out. Puter may still finish it and use allowance. Check your connection before retrying, or use “Use your AI”.');
+  return getResponseText(response);
 }
 
 async function sendMessage(message) {
@@ -763,6 +805,9 @@ async function sendMessage(message) {
 
   suggestions.hidden = true;
   const profileSnapshot = getProfile();
+  const requestMessages = buildMessages(cleaned, profileSnapshot);
+  const operation = new AbortController();
+  activeOperation = operation;
   addMessage('user', cleaned);
   input.value = '';
   autoGrow();
@@ -771,21 +816,29 @@ async function sendMessage(message) {
   const typing = addTyping();
 
   try {
-    await ensurePuterSignedIn();
+    await ensurePuterSignedIn(operation.signal);
+    operation.signal.throwIfAborted();
 
-    const answer = await runShoppingResearch(cleaned);
+    const answer = await runShoppingResearch(requestMessages, operation.signal);
+    if (activeOperation !== operation) return;
     if (!answer) throw new Error('The AI returned an empty response.');
 
     typing.remove();
     addMessage('assistant', answer, profileSnapshot);
     conversation.push({ role: 'user', content: cleaned });
     conversation.push({ role: 'assistant', content: answer });
+    conversation = conversation.slice(-MAX_HISTORY_TURNS);
   } catch (error) {
+    if (activeOperation !== operation || error?.name === 'AbortError') return;
     typing.remove();
     addMessage('assistant', friendlyPuterError(error), profileSnapshot);
   } finally {
-    setBusy(false);
-    input.focus();
+    if (activeOperation === operation) {
+      activeOperation = null;
+      setBusy(false);
+      // Avoid stealing focus if the user is reading or using another control.
+      if (document.activeElement === document.body || document.activeElement === sendButton) input.focus();
+    }
   }
 }
 
@@ -801,7 +854,7 @@ form.addEventListener('submit', (event) => {
 
 input.addEventListener('input', autoGrow);
 input.addEventListener('keydown', (event) => {
-  if (event.key === 'Enter' && !event.shiftKey) {
+  if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && event.keyCode !== 229) {
     event.preventDefault();
     form.requestSubmit();
   }
@@ -822,10 +875,44 @@ providerButtons.forEach((button) => {
 });
 
 clearChatButton.addEventListener('click', () => {
+  const wasSearching = busy && currentMode === 'puter';
+  activeOperation?.abort();
+  activeOperation = null;
+  setBusy(false);
   conversation = [];
   messagesEl.innerHTML = '';
   suggestions.hidden = false;
+  promptRecovery.hidden = true;
+  generatedPrompt.value = '';
+  handoffStatus.textContent = '';
+  input.value = '';
+  autoGrow();
   input.focus();
+  if (wasSearching) showToast('Chat cleared. A search already sent to Puter may still use your allowance.');
+});
+
+copyPromptButton.addEventListener('click', async () => {
+  if (busy || !generatedPrompt.value) return;
+  const operation = new AbortController();
+  activeOperation = operation;
+  setBusy(true);
+  try {
+    const copied = await copyText(generatedPrompt.value, operation.signal);
+    if (activeOperation !== operation) return;
+    handoffStatus.textContent = copied ? 'Prompt copied. Paste it into your assistant and send it there.'
+      : 'Select the prompt above and copy it manually, then paste it into your assistant.';
+    if (!copied) {
+      generatedPrompt.focus();
+      generatedPrompt.select();
+    }
+  } catch (_) {
+    // New chat discards this local clipboard operation.
+  } finally {
+    if (activeOperation === operation) {
+      activeOperation = null;
+      setBusy(false);
+    }
+  }
 });
 
 authButton.addEventListener('click', async () => {
@@ -844,3 +931,15 @@ loadAiPreferences();
 updateProfileSummary();
 autoGrow();
 updateAuthUI();
+
+const puterSdk = document.getElementById('puter-sdk');
+puterSdk.addEventListener('load', () => {
+  sdkStatus.hidden = currentMode !== 'puter' || Boolean(window.puter);
+  updateAuthUI();
+});
+puterSdk.addEventListener('error', () => {
+  sdkStatus.textContent = 'Puter could not load. Check your connection and refresh, or switch to “Use your AI”.';
+});
+setTimeout(() => {
+  if (!window.puter) sdkStatus.textContent = 'Puter has not loaded. Check your connection and refresh, or switch to “Use your AI”.';
+}, 15000);
