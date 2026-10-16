@@ -691,7 +691,7 @@ textarea::placeholder { color: #66758a; }
   .mobile-copy br { display: none; }
   .hero h1 { font-size: 26px; line-height: 1.15; letter-spacing: -.035em; }
   .hero p { display: none; }
-  body:has(.messages:not(:empty)) .hero, .keyboard-open .hero { display: none; }
+  .has-conversation .hero, .keyboard-open .hero { display: none; }
   .hero::after { display: none; }
   .workspace-wrap { display: flex; flex-direction: column; flex: 1; width: 100%; margin: 0; padding: 0 env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px); }
   .app-shell { display: flex; flex-direction: column; flex: 1; overflow: visible; border: 0; border-radius: 0; box-shadow: none; }

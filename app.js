@@ -667,6 +667,7 @@ function renderAssistantText(text) {
 
 function addMessage(role, text, profileSnapshot = null) {
   document.getElementById('chat-intro').hidden = true;
+  document.documentElement.classList.add('has-conversation');
   const row = document.createElement('div');
   row.className = `message ${role}`;
   const bubble = document.createElement('div');
@@ -934,6 +935,7 @@ clearChatButton.addEventListener('click', () => {
   setBusy(false);
   conversation = [];
   messagesEl.innerHTML = '';
+  document.documentElement.classList.remove('has-conversation');
   document.getElementById('chat-intro').hidden = false;
   suggestions.hidden = false;
   promptRecovery.hidden = true;
