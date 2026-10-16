@@ -435,6 +435,70 @@ test('phone controls remain reachable in landscape and a keyboard-sized viewport
   }
 });
 
+test('small iPhones show the introduction and example questions above the composer', async t => {
+  for (const [width,height] of [[320,568],[375,667],[390,664]]) {
+    const p = await open(t, {viewport:{width,height},hasTouch:true});
+    const intro = await p.locator('.chat-intro h2').boundingBox();
+    const example = await p.locator('.suggestions button').first().boundingBox();
+    const dock = await p.locator('.composer-dock').boundingBox();
+    assert.ok(intro.y >= 0 && intro.y + intro.height <= dock.y, `greeting clear at ${width}x${height}`);
+    assert.ok(example.y >= 0 && example.y + example.height <= dock.y, `example clear at ${width}x${height}`);
+  }
+});
+
+test('phone replies scroll into view and reset restores the compact banner', async t => {
+  const p = await open(t, {viewport:{width:390,height:844},hasTouch:true});
+  await p.evaluate(() => window.__answer = {message:{content:('## Example answer\n\nCheck the current merchant terms before paying.\n\n').repeat(20)}});
+  for (const question of ['A laptop', 'What about collecting points?']) {
+    await ask(p, question); await idle(p);
+    await p.waitForFunction(() => {
+      const row = document.querySelector('.message.assistant:last-child');
+      const header = document.querySelector('.site-header').getBoundingClientRect();
+      const dock = document.querySelector('.composer-dock').getBoundingClientRect();
+      const rect = row.getBoundingClientRect();
+      return rect.top >= header.bottom && rect.top + 40 < dock.top;
+    });
+    assert.equal(await p.locator('.hero').isVisible(),false);
+    await p.evaluate(() => window.scrollTo(0,document.documentElement.scrollHeight));
+    const lastText = await p.locator('.answer-content').last().locator('p').last().boundingBox();
+    const dock = await p.locator('.composer-dock').boundingBox();
+    assert.ok(lastText.y >= 61 && lastText.y + lastText.height <= dock.y, 'end of answer is clear of the dock');
+  }
+  await p.locator('#clear-chat').click();
+  assert.equal(await p.locator('.hero').isVisible(),true);
+  assert.ok((await p.locator('#send-button').boundingBox()).y < 844);
+});
+
+test('iOS visual viewport changes keep the composer above the keyboard and preserve zoom', async t => {
+  const p = await open(t, {viewport:{width:390,height:844},hasTouch:true});
+  await p.locator('#chat-input').focus();
+  await p.evaluate(() => {
+    for (const [key,value] of Object.entries({height:480,offsetTop:0,scale:1})) {
+      Object.defineProperty(window.visualViewport,key,{configurable:true,value});
+    }
+    window.visualViewport.dispatchEvent(new Event('resize'));
+  });
+  assert.equal(await p.locator('html').evaluate(e=>e.classList.contains('keyboard-open')),true);
+  assert.equal(await p.locator('.hero').isVisible(),false);
+  assert.equal(await p.locator('.suggestions').isVisible(),false);
+  const rect = await p.locator('#send-button').boundingBox();
+  assert.ok(rect.y >= 61 && rect.y + rect.height <= 480,'composer above the simulated keyboard');
+  await p.evaluate(() => {
+    Object.defineProperty(window.visualViewport,'scale',{configurable:true,value:2});
+    window.visualViewport.dispatchEvent(new Event('resize'));
+  });
+  assert.equal(await p.locator('html').evaluate(e=>e.style.getPropertyValue('--keyboard-inset')),'364px');
+  await p.evaluate(() => {
+    for (const [key,value] of Object.entries({height:844,scale:1})) {
+      Object.defineProperty(window.visualViewport,key,{configurable:true,value});
+    }
+    window.visualViewport.dispatchEvent(new Event('resize'));
+  });
+  assert.equal(await p.locator('html').evaluate(e=>e.classList.contains('keyboard-open')),false);
+  assert.equal(await p.locator('.hero').isVisible(),true);
+  assert.equal(await p.locator('.suggestions').isVisible(),true);
+});
+
 test('home-screen manifest and icon paths resolve under the Pages project URL', async t => {
   const p = await open(t);
   const url = new URL(await p.locator('link[rel="manifest"]').getAttribute('href'),origin);

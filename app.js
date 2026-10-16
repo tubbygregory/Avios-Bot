@@ -706,7 +706,7 @@ function addMessage(role, text, profileSnapshot = null) {
 
   row.appendChild(bubble);
   messagesEl.appendChild(row);
-  messagesEl.scrollTop = messagesEl.scrollHeight;
+  revealMessage(row);
   return row;
 }
 
@@ -716,8 +716,22 @@ function addTyping() {
   row.className = 'message assistant';
   row.innerHTML = '<div class="bubble"><span class="typing" aria-hidden="true"><span></span><span></span><span></span></span><span class="research-status">Connecting to Puter…</span></div>';
   messagesEl.appendChild(row);
-  messagesEl.scrollTop = messagesEl.scrollHeight;
+  revealMessage(row);
   return row;
+}
+
+function revealMessage(row) {
+  // Desktop has a scrolling transcript; phones scroll the document. Setting
+  // scrollTop on the phone transcript leaves later replies below the screen.
+  if (window.matchMedia('(max-width: 760px), (max-height: 500px) and (max-width: 960px)').matches) {
+    requestAnimationFrame(() => {
+      if (row.isConnected && currentMode === 'puter' && !rewardDetails.open) {
+        row.scrollIntoView({ block: 'start', behavior: 'instant' });
+      }
+    });
+  } else {
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
 }
 
 function setBusy(value) {
@@ -949,6 +963,10 @@ function updateViewport() {
   const inset = document.activeElement === input && viewport
     ? Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop) : 0;
   document.documentElement.style.setProperty('--keyboard-inset', `${inset}px`);
+  // iOS shrinks the visual viewport; browsers that resize the layout viewport
+  // are also handled by the short-height media query. Never infer a keyboard
+  // from pinch zoom, or hide reward controls while a native select is open.
+  document.documentElement.classList.toggle('keyboard-open', inset > 120);
 }
 window.visualViewport?.addEventListener('resize', updateViewport);
 window.visualViewport?.addEventListener('scroll', updateViewport);
