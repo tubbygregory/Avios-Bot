@@ -757,5 +757,9 @@ test('selected-card tools fit narrow Safari screens and a keyboard-sized viewpor
   await p.setViewportSize({width:390,height:430});await p.locator('#calc-source').focus();
   const dialog=await p.locator('#tools-dialog').boundingBox();assert.ok(dialog.y>=0&&dialog.y+dialog.height<=430);
   const close=await p.locator('#close-tools').boundingBox();assert.ok(close.y>=0&&close.y+close.height<=430);
+  await p.locator('#calculator-form button[type="submit"]').scrollIntoViewIfNeeded();
+  const heading=await p.locator('.tools-heading').boundingBox();
+  assert.ok(heading.y<=dialog.y+2,'sticky heading covers the top edge when scrolled');
+  assert.ok(heading.width>=dialog.width-2,'heading background covers the full dialog width');
   await p.locator('#close-tools').click();assert.equal(await p.locator('#tools-dialog').evaluate(e=>e.open),false);
 });
