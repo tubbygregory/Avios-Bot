@@ -706,6 +706,7 @@ textarea::placeholder { color: #66758a; }
   .reward-category h3 { font-size: 13px; margin-bottom: 10px; }
   .reward-category .reward-grid { gap: 8px; }
   .reward-option { min-height: 44px; padding: 9px 12px 9px 9px; gap: 8px; }
+  .reward-option:hover, .suggestions button:hover { transform: none; }
   .reward-option > span:last-child { font-size: 13px; line-height: 1.35; white-space: normal; }
   .check-ui { width: 20px; height: 20px; flex: 0 0 auto; }
   .reward-detail-row { flex-wrap: wrap; }

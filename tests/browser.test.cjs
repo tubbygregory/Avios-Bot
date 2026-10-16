@@ -408,7 +408,9 @@ test('phone composer is reachable on the first screen and rewards remain usable 
     assert.ok(await p.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
     await choose(p, '#ba-premium'); await choose(p, '#revolut');
     await p.locator('#revolut-plan').selectOption('Ultra');
-    assert.ok((await p.locator('label').filter({has:p.locator('#ba-premium')}).boundingBox()).height >= 44);
+    const cardTarget = await p.locator('label').filter({has:p.locator('#ba-premium')}).boundingBox();
+    // Browser quad subtraction can round a 44px box down by a fraction of a pixel.
+    assert.ok(cardTarget.height >= 43.99, `card touch target ${cardTarget.height}px at ${width}x${height}`);
     await p.locator('#done-rewards').click();
     assert.equal(await p.locator('#reward-details').evaluate(e => e.open), false);
     assert.match(await p.locator('#profile-overview').textContent(), /Premium Plus.*Ultra/);
