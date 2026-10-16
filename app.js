@@ -31,6 +31,7 @@ const MAX_HISTORY_TURNS = 8;
 let conversation = [];
 let busy = false;
 let activeOperation = null;
+let lastExternalRequest = '';
 const AI_MODE_KEY = 'aviosmaxxing-ai-mode';
 const AI_PROVIDER_KEY = 'aviosmaxxing-ai-provider';
 const PROVIDERS = {
@@ -214,6 +215,12 @@ OUTPUT
 Lead with the recommendation. Then give a concise comparison of the best routes, an Avios/rewards breakdown, any important caveats, and direct sources. Keep the focus on what the user should actually do.`;
 }
 
+function refreshExternalPrompt() {
+  if (!lastExternalRequest || promptRecovery.hidden) return;
+  generatedPrompt.value = buildExternalAiPrompt(lastExternalRequest);
+  handoffStatus.textContent = 'Your rewards changed. Copy the updated prompt before sending it to your assistant.';
+}
+
 // Bound local waits without pretending to cancel work already sent to Puter.
 function waitFor(promise, signal, milliseconds, message) {
   return new Promise((resolve, reject) => {
@@ -267,6 +274,7 @@ async function sendToExternalAi(message) {
   setBusy(true);
   const provider = PROVIDERS[currentProvider];
   const prompt = buildExternalAiPrompt(cleaned);
+  lastExternalRequest = cleaned;
   generatedPrompt.value = prompt;
   openProvider.href = provider.url;
   openProvider.textContent = `Open ${provider.label}`;
@@ -325,9 +333,17 @@ function loadProfile() {
       revolutPlan.value = stored.revolutPlan;
     }
   } catch (_) {}
-  // Old or edited storage can contain both variants; prefer the premium option.
-  if (baPremium.checked) baAmex.checked = false;
-  if (barclaycardPlus.checked) barclaycardAvios.checked = false;
+  // Conflicting saved cards cannot establish eligibility for either variant.
+  let conflict = false;
+  for (const [standard, premium] of [[baAmex, baPremium], [barclaycardAvios, barclaycardPlus]]) {
+    if (standard.checked && premium.checked) {
+      standard.checked = premium.checked = false;
+      conflict = true;
+    }
+  }
+  if (conflict) {
+    document.getElementById('profile-status').textContent = 'Some saved cards conflicted. Please select the card you hold in each family.';
+  }
   updateRewardControls();
 }
 
@@ -335,8 +351,10 @@ function saveProfile() {
   const profile = getProfile();
   try {
     localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
+    document.getElementById('profile-status').textContent = '';
   } catch (_) {
     showToast('Your rewards work for this visit, but this browser could not save them.', 'error');
+    document.getElementById('profile-status').textContent = 'Your browser could not save these rewards. They still apply for this visit.';
   }
 }
 
@@ -517,6 +535,7 @@ profileInputs.forEach((el) => {
     updateRewardControls();
     saveProfile();
     updateProfileSummary();
+    refreshExternalPrompt();
   });
 });
 
@@ -524,6 +543,7 @@ if (revolutPlan) {
   revolutPlan.addEventListener('change', () => {
     saveProfile();
     updateProfileSummary();
+    refreshExternalPrompt();
   });
 }
 
@@ -687,7 +707,7 @@ function addMessage(role, text, profileSnapshot = null) {
 function addTyping() {
   const row = document.createElement('div');
   row.className = 'message assistant';
-  row.innerHTML = '<div class="bubble"><span class="typing"><span aria-hidden="true"></span><span aria-hidden="true"></span><span aria-hidden="true"></span><span class="sr-only">Researching…</span></span></div>';
+  row.innerHTML = '<div class="bubble"><span class="typing" aria-hidden="true"><span></span><span></span><span></span></span><span class="research-status">Connecting to Puter…</span></div>';
   messagesEl.appendChild(row);
   messagesEl.scrollTop = messagesEl.scrollHeight;
   return row;
@@ -709,7 +729,7 @@ function getResponseText(response) {
   if (typeof content === 'string') return content.trim();
   if (Array.isArray(content)) {
     return content
-      .map((part) => typeof part === 'string' ? part : (part?.text || ''))
+      .map((part) => typeof part === 'string' ? part : (typeof part?.text === 'string' ? part.text : ''))
       .filter(Boolean)
       .join('\n')
       .trim();
@@ -793,7 +813,8 @@ async function runShoppingResearch(messages, signal) {
   const response = await waitFor(puter.ai.chat(messages, {
     model: MODEL,
     temperature: 0.1,
-    max_tokens: 2600
+    max_tokens: 2600,
+    signal
   }), signal, 120000,
   'The search timed out. Puter may still finish it and use allowance. Check your connection before retrying, or use “Use your AI”.');
   return getResponseText(response);
@@ -818,6 +839,7 @@ async function sendMessage(message) {
   try {
     await ensurePuterSignedIn(operation.signal);
     operation.signal.throwIfAborted();
+    typing.querySelector('.research-status').textContent = 'Researching…';
 
     const answer = await runShoppingResearch(requestMessages, operation.signal);
     if (activeOperation !== operation) return;
@@ -829,9 +851,15 @@ async function sendMessage(message) {
     conversation.push({ role: 'assistant', content: answer });
     conversation = conversation.slice(-MAX_HISTORY_TURNS);
   } catch (error) {
-    if (activeOperation !== operation || error?.name === 'AbortError') return;
+    if (activeOperation !== operation) return;
+    // The SDK supports AbortSignal; stop its transport on a local timeout too.
+    operation.abort();
     typing.remove();
     addMessage('assistant', friendlyPuterError(error), profileSnapshot);
+    if (!input.value) {
+      input.value = cleaned;
+      autoGrow();
+    }
   } finally {
     if (activeOperation === operation) {
       activeOperation = null;
@@ -884,6 +912,7 @@ clearChatButton.addEventListener('click', () => {
   suggestions.hidden = false;
   promptRecovery.hidden = true;
   generatedPrompt.value = '';
+  lastExternalRequest = '';
   handoffStatus.textContent = '';
   input.value = '';
   autoGrow();

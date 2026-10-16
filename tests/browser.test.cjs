@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { createServer } = require('node:http');
 const { readFileSync, existsSync } = require('node:fs');
 const { resolve, extname } = require('node:path');
-const { chromium } = require('playwright');
+const { chromium, firefox, webkit } = require('playwright');
 const axe = require('axe-core');
 
 // Exercise project-relative assets, as GitHub Pages does, without remote AI calls.
@@ -22,13 +22,15 @@ before(async () => {
   });
   await new Promise(done => server.listen(0, '127.0.0.1', done));
   origin = `http://127.0.0.1:${server.address().port}/Avios-Bot/`;
-  const executablePath = process.env.CHROMIUM_PATH || (existsSync('/usr/bin/chromium') ? '/usr/bin/chromium' : undefined);
-  browser = await chromium.launch({ executablePath, args: ['--no-sandbox'] });
+  const engine = process.env.TEST_BROWSER || 'chromium';
+  assert.ok(['chromium', 'firefox', 'webkit'].includes(engine), 'supported test browser');
+  const executablePath = engine === 'chromium' ? process.env.CHROMIUM_PATH || (existsSync('/usr/bin/chromium') ? '/usr/bin/chromium' : undefined) : undefined;
+  browser = await ({ chromium, firefox, webkit })[engine].launch({ executablePath, args: engine === 'chromium' ? ['--no-sandbox'] : [] });
 });
 after(async () => { await browser?.close(); await new Promise(done => server?.close(done)); });
 
 const sdk = `
-window.__calls = []; window.__authCalls = [];
+window.__calls = []; window.__authCalls = []; window.__signals = [];
 window.__signedIn = true;
 window.__answer = {message:{content:'A useful answer with [a source](https://example.com/).'}};
 window.puter = {
@@ -42,7 +44,9 @@ window.puter = {
     }
   },
   ai: {chat: async (messages, options) => {
-    window.__calls.push({messages, options});
+    const {signal, ...requestOptions} = options;
+    window.__signals.push(signal);
+    window.__calls.push({messages, options: requestOptions});
     if (window.__pending) return new Promise((resolve,reject) => {window.__resolveChat=resolve;window.__rejectChat=reject;});
     if (window.__rejectNull) throw null;
     if (window.__error) throw window.__error;
@@ -138,11 +142,32 @@ test('malformed and conflicting preferences are normalised safely', async t => {
   for (const stored of ['null', '{bad json', JSON.stringify({ baAmex: true, baPremium: true, barclaycardAvios: true, barclaycardPlus: true, nectar: 'false', revolut: true, revolutPlan: 'Unknown' })]) {
     const p = await open(t, { storage: { 'avios-optimiser-profile-v2': stored, 'aviosmaxxing-ai-provider': 'constructor' } });
     assert.equal(await p.locator('#ba-amex').isChecked(), false);
+    assert.equal(await p.locator('#ba-premium').isChecked(), false);
     assert.equal(await p.locator('#barclaycard-avios').isChecked(), false);
+    assert.equal(await p.locator('#barclaycard-plus').isChecked(), false);
     assert.equal(await p.locator('[data-profile="nectar"]').isChecked(), false);
     assert.equal(await p.locator('#revolut-plan').inputValue(), 'Standard');
     assert.equal(await p.locator('[data-provider="chatgpt"]').getAttribute('aria-pressed'), 'true');
   }
+});
+
+test('keyboard users can skip the rewards controls and focus the question', async t => {
+  const p = await open(t);
+  await p.keyboard.press('Tab');
+  assert.equal(await p.locator('.skip-link').evaluate(e => e === document.activeElement), true);
+  await p.keyboard.press('Enter');
+  assert.equal(await p.locator('#chat-input').evaluate(e => e === document.activeElement), true);
+  assert.equal(await p.locator('#chat-form').evaluate(e => getComputedStyle(e).outlineStyle), 'solid');
+});
+
+test('the page explains why it cannot work when JavaScript is disabled', async t => {
+  const context = await browser.newContext({ javaScriptEnabled: false });
+  t.after(() => context.close());
+  await context.route('https://**/*', route => route.abort());
+  const p = await context.newPage();
+  await p.goto(origin);
+  assert.equal(await p.locator('.no-script').isVisible(), true);
+  assert.match(await p.locator('.no-script').textContent(), /needs JavaScript/);
 });
 
 test('blocked preference storage still updates controls and personalised prompts', async t => {
@@ -241,7 +266,7 @@ test('Puter authentication errors, allowance limits, rate limits and invalid res
     assert.match(await p.locator('.answer-content').last().textContent(), expected);
     assert.equal(await p.locator('[data-mode="own"]').isEnabled(), true);
   }
-  for (const answer of [{message:{content:''}}, {unexpected:'object'}]) {
+  for (const answer of [{message:{content:''}}, {message:{content:[{text:{unexpected:'object'}}]}}, {unexpected:'object'}]) {
     await p.evaluate(answer => { window.__error = null; window.__answer = answer; }, answer);
     await ask(p); await idle(p);
     assert.match(await p.locator('.answer-content').last().textContent(), /empty response/);
@@ -252,7 +277,7 @@ test('Puter authentication errors, allowance limits, rate limits and invalid res
   await p.evaluate(() => window.__rejectNull = false);
   await p.evaluate(() => { window.__signedIn=false; window.__authError={error:'auth_window_closed'}; });
   await ask(p); await idle(p);
-  assert.equal(await p.evaluate(() => window.__calls.length), 8, 'failed sign-in does not call AI');
+  assert.equal(await p.evaluate(() => window.__calls.length), 9, 'failed sign-in does not call AI');
   assert.deepEqual(await p.evaluate(() => window.__authCalls[0]), {attempt_temp_user_creation:true});
 });
 
@@ -262,6 +287,7 @@ test('clearing chat discards late search and sign-in results without affecting a
   await ask(p, 'Old request'); await p.waitForFunction(() => Boolean(window.__resolveChat));
   assert.equal(await p.locator('[data-profile="nectar"]').isDisabled(), true);
   await p.locator('#clear-chat').click();
+  assert.equal(await p.evaluate(() => window.__signals[0].aborted), true, 'SDK receives cancellation');
   await p.evaluate(() => window.__pending = false);
   await ask(p, 'New request'); await idle(p);
   await p.evaluate(() => window.__resolveChat({message:{content:'STALE RESPONSE'}}));
@@ -282,6 +308,7 @@ test('stalled AI and clipboard operations have bounded waits and recover', async
   await ask(p); await p.waitForFunction(() => Boolean(window.__resolveChat));
   await p.clock.fastForward(120001); await idle(p);
   assert.match(await p.locator('.answer-content').last().textContent(), /timed out.*may still finish/s);
+  assert.equal(await p.evaluate(() => window.__signals[0].aborted), true, 'timeout cancels SDK transport');
   await p.evaluate(() => { window.__signedIn=false; window.__authPending=true; });
   await ask(p); await p.waitForFunction(() => Boolean(window.__resolveAuth));
   await p.clock.fastForward(120001); await idle(p);
@@ -338,4 +365,28 @@ test('responsive layouts and WCAG accessibility checks cover both modes and reco
   assert.ok(await p.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   result = await p.evaluate(() => axe.run(document, {runOnly:{type:'tag',values:['wcag2a','wcag2aa','wcag21aa']}}));
   assert.deepEqual(result.violations.map(v => ({id:v.id,targets:v.nodes.map(n=>n.target)})), []);
+});
+
+test('an SDK-originated abort removes progress, shows an error and restores the question', async t => {
+  const p = await open(t);
+  await p.evaluate(() => window.__error = {name:'AbortError',message:'The network request was interrupted.'});
+  await ask(p, 'Find a laptop'); await idle(p);
+  assert.equal(await p.locator('.typing').count(), 0);
+  assert.match(await p.locator('.answer-content').textContent(), /interrupted/);
+  assert.equal(await p.locator('#chat-input').inputValue(), 'Find a laptop');
+});
+
+test('changing rewards refreshes an existing external prompt before copying again', async t => {
+  const p = await open(t); await p.locator('[data-mode="own"]').click(); await fakePopup(p);
+  await choose(p, '#ba-amex'); await ask(p, 'A weekend away'); await idle(p);
+  await choose(p, '#ba-premium');
+  let prompt = await p.locator('#generated-prompt').inputValue();
+  assert.match(prompt, /Premium Plus/);
+  assert.equal(prompt.includes('standard/free BA Amex'), false);
+  await choose(p, '#revolut'); await p.locator('#revolut-plan').selectOption('Ultra');
+  prompt = await p.locator('#generated-prompt').inputValue();
+  assert.match(prompt, /Ultra/);
+  assert.match(await p.locator('#handoff-status').textContent(), /updated prompt/);
+  await p.locator('#copy-prompt').click(); await idle(p);
+  assert.equal(await p.evaluate(() => window.__clipboard.at(-1)), prompt);
 });
