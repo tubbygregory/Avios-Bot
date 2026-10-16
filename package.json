@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "test": "node --test tests/browser.test.cjs",
-    "check": "node --check app.js && node --check features.js"
+    "check": "node --check app.js && node --check features.js && node --check theme.js"
   },
   "devDependencies": {
     "axe-core": "4.10.3",

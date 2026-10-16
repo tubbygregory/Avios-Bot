@@ -41,6 +41,8 @@ GitHub Pages cannot apply Netlify `_headers` or arbitrary response headers. Full
 
 ## Further improvements, in priority order
 
+Appearance now supports light, dark, high contrast and live device matching through Tools. Theme-specific accessibility checks cover chat, rewards, external handoff, comparison cards, saved answers and the calculator, alongside persistence, blocked storage and cross-tab updates. Palette choices do not affect reward data, prompt contents or AI allowances.
+
 The product now includes opt-in saved recommendations/searches with favourites and validated import/export, guided purchase/hotel/flight/dining searches, responsive comparison cards, and a calculator using user-confirmed rates and sources. The existing Puter request count and model are unchanged. No alerts, backend, automatic history saving or live rate feed was added. The official issuer websites could not be accessed through the cloud network, so calculator defaults do not invent current rates. See README for the exact scope and financial-data limits.
 
 1. **Validate real answer quality.** With a usable test account and permission to use its allowance, exercise exact products, upgrades, dining and travel. Check each material price/rewards claim against primary sources. Prompt instructions alone cannot guarantee accurate arithmetic, eligibility or stackability. Add structured source URLs, verification dates and exclusions to results before presenting totals as dependable comparisons.

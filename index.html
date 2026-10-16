@@ -12,6 +12,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="description" content="Maximise the Avios you earn on purchases, bookings and everyday spending." />
   <title>Aviosmaxxing</title>
+  <script src="./theme.js"></script>
   <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="./styles.css" />
   <link rel="manifest" href="./manifest.webmanifest" />
@@ -229,6 +230,11 @@
 
   <dialog id="tools-dialog" aria-labelledby="tools-title">
     <div class="tools-heading"><h2 id="tools-title">Make your next spend count</h2><button id="close-tools" class="tool-button" type="button">Close</button></div>
+    <div class="appearance-setting">
+      <label for="appearance">Appearance</label>
+      <select id="appearance"><option value="system">Match device</option><option value="light">Light</option><option value="dark">Dark</option><option value="contrast">High contrast</option></select>
+      <p id="appearance-status" class="tool-copy" role="status"></p>
+    </div>
     <div class="tools-tabs" role="tablist" aria-label="Rewards tools">
       <button id="tab-guide" type="button" role="tab" aria-selected="true" aria-controls="panel-guide">Plan a search</button>
       <button id="tab-calculator" type="button" role="tab" aria-selected="false" aria-controls="panel-calculator" tabindex="-1">Calculator</button>

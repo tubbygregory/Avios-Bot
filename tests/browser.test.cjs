@@ -54,8 +54,8 @@ window.puter = {
   }}
 };`;
 
-async function open(t, { storage, blockedStorage, sdkMode = 'mock', viewport, hasTouch = false } = {}) {
-  const context = await browser.newContext({ viewport, hasTouch, serviceWorkers: 'block' });
+async function open(t, { storage, blockedStorage, sdkMode = 'mock', viewport, hasTouch = false, colorScheme, contrast, forcedColors } = {}) {
+  const context = await browser.newContext({ viewport, hasTouch, colorScheme, contrast, forcedColors, serviceWorkers: 'block' });
   t.after(() => context.close());
   // No provider, SDK or AI traffic escapes this deterministic test suite.
   await context.route('https://**/*', route => route.request().url() === 'https://js.puter.com/v2/'
@@ -101,7 +101,7 @@ test('project paths, assets and CSP protect the static page', async t => {
   const p = await open(t);
   assert.equal(await p.title(), 'Aviosmaxxing');
   assert.equal(await p.locator('[data-prompt]').count(), 3);
-  for (const asset of ['app.js', 'styles.css', 'favicon.svg', '.nojekyll']) {
+  for (const asset of ['app.js', 'features.js', 'theme.js', 'styles.css', 'favicon.svg', '.nojekyll']) {
     assert.equal((await p.request.get(origin + asset)).status(), 200);
   }
   assert.equal(await p.locator('.brand').getAttribute('href'), './');
@@ -762,4 +762,85 @@ test('selected-card tools fit narrow Safari screens and a keyboard-sized viewpor
   assert.ok(heading.y<=dialog.y+2,'sticky heading covers the top edge when scrolled');
   assert.ok(heading.width>=dialog.width-2,'heading background covers the full dialog width');
   await p.locator('#close-tools').click();assert.equal(await p.locator('#tools-dialog').evaluate(e=>e.open),false);
+});
+
+const APPEARANCE_KEY='aviosmaxxing-appearance-v1';
+async function appearance(page,value) {
+  await tools(page);
+  await page.locator('#appearance').selectOption(value);
+}
+async function hasTheme(page,value) {
+  await page.waitForFunction(value=>document.documentElement.dataset.theme===value,value);
+}
+
+test('appearance defaults to the device, follows live device changes and preserves an explicit choice', async t => {
+  const p=await open(t,{colorScheme:'dark',contrast:'no-preference',forcedColors:'none'});
+  await hasTheme(p,'dark');assert.equal(await p.locator('html').getAttribute('data-appearance'),'system');
+  assert.equal(await p.locator('meta[name="theme-color"]').getAttribute('content'),'#131e30');
+  await p.emulateMedia({colorScheme:'light'});await hasTheme(p,'light');
+  await p.emulateMedia({contrast:'more'});await hasTheme(p,'contrast');
+  assert.equal(await p.evaluate(key=>localStorage.getItem(key),APPEARANCE_KEY),null,'device changes do not replace the preference');
+  await appearance(p,'light');await p.emulateMedia({colorScheme:'dark',contrast:'more'});await hasTheme(p,'light');
+  assert.equal(await p.locator('html').evaluate(e=>getComputedStyle(e).colorScheme),'light');
+  await p.locator('#appearance').selectOption('dark');await p.reload();await hasTheme(p,'dark');
+  assert.equal(await p.locator('#appearance').inputValue(),'dark');
+  assert.equal(await p.evaluate(key=>localStorage.getItem(key),APPEARANCE_KEY),'dark');
+  await appearance(p,'system');await hasTheme(p,'contrast');
+  await p.emulateMedia({contrast:'no-preference',colorScheme:'light'});await hasTheme(p,'light');
+});
+
+test('invalid appearance storage falls back safely and blocked storage still applies the choice', async t => {
+  const invalid=await open(t,{colorScheme:'light',contrast:'no-preference',storage:{[APPEARANCE_KEY]:'<script>dark</script>'}});
+  await hasTheme(invalid,'light');assert.equal(await invalid.locator('#appearance').inputValue(),'system');
+  const p=await open(t,{colorScheme:'light',contrast:'no-preference',blockedStorage:true});
+  await appearance(p,'contrast');await hasTheme(p,'contrast');
+  assert.match(await p.locator('#appearance-status').textContent(),/visit.*could not save/);
+  await p.locator('#close-tools').click();await p.locator('#clear-chat').click();await hasTheme(p,'contrast');
+  await p.reload();await hasTheme(p,'light');assert.equal(await p.locator('#appearance').inputValue(),'system');
+});
+
+test('appearance changes sync across tabs and clearing preferences restores device matching', async t => {
+  const p=await open(t,{colorScheme:'light',contrast:'no-preference'});
+  const other=await p.context().newPage();await other.goto(p.url(),{waitUntil:'domcontentloaded'});
+  await appearance(p,'dark');await hasTheme(other,'dark');assert.equal(await other.locator('#appearance').inputValue(),'dark');
+  await other.evaluate(()=>localStorage.clear());await hasTheme(p,'light');
+  assert.equal(await p.locator('#appearance').inputValue(),'system');
+});
+
+test('all palettes keep chat, rewards, handoff, comparisons, saved answers and calculator accessible on phones', async t => {
+  for(const theme of ['light','dark','contrast']) {
+    const p=await open(t,{viewport:{width:390,height:844},hasTouch:true});
+    await appearance(p,theme);await p.locator('#close-tools').click();await p.evaluate(axe.source);
+    const check=async state=>{
+      const result=await p.evaluate(()=>axe.run(document,{runOnly:{type:'tag',values:['wcag2a','wcag2aa','wcag21aa']}}));
+      assert.deepEqual(result.violations.map(v=>({id:v.id,targets:v.nodes.map(n=>n.target)})),[],theme+' '+state);
+      assert.ok(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),theme+' page fits');
+    };
+    await check('start');await choose(p,'#ba-premium');await choose(p,'#revolut');await p.locator('#revolut-plan').selectOption('Ultra');
+    await check('rewards');await p.locator('#done-rewards').click();
+    await p.evaluate(answer=>window.__answer={message:{content:answer}},comparisonAnswer);
+    await ask(p,'Compare purchases');await idle(p);await check('comparison');
+    await p.getByRole('button',{name:'Save recommendation',exact:true}).click();await tools(p,'saved');
+    await p.locator('.saved-item summary').click();await p.locator('.saved-item .comparison-card').first().waitFor();await check('saved');
+    await calculator(p);await p.locator('#calculator-form button[type="submit"]').click();await check('calculator');
+    assert.equal(await p.locator('#calculator-result').isVisible(),true);
+    await p.locator('#close-tools').click();await p.locator('[data-mode="own"]').click();await fakePopup(p);await ask(p,'A hotel');await idle(p);await check('handoff');
+    await p.setViewportSize({width:1280,height:900});await check('desktop');
+  }
+});
+
+test('high contrast keeps strong text, input borders, focus indicators and visible selected states', async t => {
+  const p=await open(t,{viewport:{width:320,height:568},hasTouch:true});await appearance(p,'contrast');
+  await p.locator('#appearance').focus();
+  const contrast=await p.evaluate(()=>{
+    const channels=s=>s.match(/[\d.]+/g).slice(0,3).map(Number).map(v=>{v/=255;return v<=0.04045?v/12.92:((v+0.055)/1.055)**2.4});
+    const luminance=s=>channels(s).reduce((sum,v,i)=>sum+v*[0.2126,0.7152,0.0722][i],0);
+    const ratio=(a,b)=>{const x=luminance(a),y=luminance(b);return(Math.max(x,y)+0.05)/(Math.min(x,y)+0.05)};
+    const select=getComputedStyle(document.getElementById('appearance'));
+    const primary=getComputedStyle(document.getElementById('prepare-search'));
+    return {text:ratio(select.color,select.backgroundColor),border:ratio(select.borderTopColor,select.backgroundColor),focus:ratio(select.outlineColor,select.backgroundColor),button:ratio(primary.color,primary.backgroundColor),outlineWidth:select.outlineWidth};
+  });
+  assert.ok(contrast.text>=7);assert.ok(contrast.button>=7);assert.ok(contrast.border>=3);assert.ok(contrast.focus>=3);assert.equal(contrast.outlineWidth,'3px');
+  await p.locator('#close-tools').click();await choose(p,'#ba-amex');
+  assert.equal(await p.locator('label').filter({has:p.locator('#ba-amex')}).evaluate(e=>getComputedStyle(e).outlineStyle),'solid');
 });
