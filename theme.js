@@ -11,7 +11,10 @@
   try { preference = normalise(localStorage.getItem(key)); } catch (_) {}
 
   function apply() {
-    const deviceTheme = contrast.matches || forced.matches ? 'contrast' : dark.matches ? 'dark' : 'light';
+    // Some browsers retain stale query objects after a device/emulation change.
+    // Resolve fresh values when returning from system settings or a home screen.
+    const matches = query => window.matchMedia(query.media).matches;
+    const deviceTheme = matches(contrast) || matches(forced) ? 'contrast' : matches(dark) ? 'dark' : 'light';
     const theme = preference === 'system' ? deviceTheme : preference;
     document.documentElement.dataset.theme = theme;
     document.documentElement.dataset.appearance = preference;
@@ -24,6 +27,9 @@
   [dark, contrast, forced].forEach(query => query.addEventListener('change', () => {
     if (preference === 'system') apply();
   }));
+  window.addEventListener('focus', apply);
+  window.addEventListener('pageshow', apply);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) apply(); });
   window.addEventListener('storage', event => {
     if (event.key !== key && event.key !== null) return;
     preference = normalise(event.newValue);

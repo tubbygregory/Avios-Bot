@@ -778,7 +778,10 @@ test('appearance defaults to the device, follows live device changes and preserv
   await hasTheme(p,'dark');assert.equal(await p.locator('html').getAttribute('data-appearance'),'system');
   assert.equal(await p.locator('meta[name="theme-color"]').getAttribute('content'),'#131e30');
   await p.emulateMedia({colorScheme:'light'});await hasTheme(p,'light');
-  await p.emulateMedia({contrast:'more'});await hasTheme(p,'contrast');
+  await p.emulateMedia({contrast:'more'});
+  // Firefox's emulation updates new queries but can leave existing query
+  // objects stale. Returning from device settings must refresh the palette.
+  await p.evaluate(()=>window.dispatchEvent(new Event('focus')));await hasTheme(p,'contrast');
   assert.equal(await p.evaluate(key=>localStorage.getItem(key),APPEARANCE_KEY),null,'device changes do not replace the preference');
   await appearance(p,'light');await p.emulateMedia({colorScheme:'dark',contrast:'more'});await hasTheme(p,'light');
   assert.equal(await p.locator('html').evaluate(e=>getComputedStyle(e).colorScheme),'light');
@@ -832,6 +835,7 @@ test('all palettes keep chat, rewards, handoff, comparisons, saved answers and c
 test('high contrast keeps strong text, input borders, focus indicators and visible selected states', async t => {
   const p=await open(t,{viewport:{width:320,height:568},hasTouch:true});await appearance(p,'contrast');
   await p.locator('#appearance').focus();
+  await p.keyboard.press('Tab');await p.keyboard.press('Shift+Tab');
   const contrast=await p.evaluate(()=>{
     const channels=s=>s.match(/[\d.]+/g).slice(0,3).map(Number).map(v=>{v/=255;return v<=0.04045?v/12.92:((v+0.055)/1.055)**2.4});
     const luminance=s=>channels(s).reduce((sum,v,i)=>sum+v*[0.2126,0.7152,0.0722][i],0);
