@@ -13,6 +13,7 @@ Scope: the static frontend, both personalised prompts, rewards and saved prefere
 | Failed questions disappeared from the composer | Restore the question for an explicit retry | Interrupted-search regression |
 | Progress gave no visible distinction between connecting and researching | Add visible connection/research status | Browser workflow checks |
 | Keyboard users had to traverse every reward control | Add a skip link and a strong composer focus indicator | Keyboard regression in the shared browser suite |
+| Provider placeholders clipped on small screens; New chat retained old copy notifications | Shorten provider placeholders and clear transient notifications when resetting | Responsive/recovery checks plus live mobile inspection |
 | High-contrast selections and JavaScript-disabled operation lacked clear feedback | Use system selection colours; explain JavaScript is required | Styles reviewed; JavaScript-disabled regression |
 | Data sharing was unclear | Explain that embedded search sends the question, selected rewards and recent conversation to Puter | Footer and README |
 | Tests covered one browser engine | Run the same suite with Chromium, Firefox and WebKit in CI | See Browser checks workflow results |

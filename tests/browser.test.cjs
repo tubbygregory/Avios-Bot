@@ -231,6 +231,7 @@ test('legacy copy fallback cleans up and duplicate submissions cannot open extra
   assert.equal(await p.locator('#generated-prompt').inputValue(), '');
   assert.equal(await p.locator('#chat-input').inputValue(), 'New request');
   assert.equal(await p.locator('#prompt-recovery').isVisible(), false);
+  assert.equal(await p.locator('#toast').isVisible(), false);
 });
 
 test('Puter payload, bounded history and safe rendering work without automatic paid retries', async t => {
@@ -365,6 +366,9 @@ test('responsive layouts and WCAG accessibility checks cover both modes and reco
   assert.ok(await p.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   result = await p.evaluate(() => axe.run(document, {runOnly:{type:'tag',values:['wcag2a','wcag2aa','wcag21aa']}}));
   assert.deepEqual(result.violations.map(v => ({id:v.id,targets:v.nodes.map(n=>n.target)})), []);
+  await p.locator('#clear-chat').click();
+  assert.equal(await p.locator('#toast').isVisible(), false, 'new chat clears stale copy status');
+  assert.ok(await p.locator('#chat-input').evaluate(e => e.scrollHeight <= e.clientHeight + 1), 'empty composer placeholder fits');
 });
 
 test('an SDK-originated abort removes progress, shows an error and restores the question', async t => {

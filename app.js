@@ -132,7 +132,7 @@ function setMode(mode, persist = true) {
   if (ownAiPanel) ownAiPanel.hidden = currentMode !== 'own';
   sdkStatus.hidden = currentMode !== 'puter' || Boolean(window.puter);
   input.placeholder = currentMode === 'own'
-    ? `What should ${PROVIDERS[currentProvider].label} help you maximise?`
+    ? `Ask ${PROVIDERS[currentProvider].label}…`
     : 'What are you looking for?';
   if (persist) {
     try { localStorage.setItem(AI_MODE_KEY, currentMode); } catch (_) {}
@@ -148,7 +148,7 @@ function setProvider(provider, persist = true) {
     button.setAttribute('aria-pressed', String(selected));
   });
   if (currentMode === 'own') {
-    input.placeholder = `What should ${PROVIDERS[currentProvider].label} help you maximise?`;
+    input.placeholder = `Ask ${PROVIDERS[currentProvider].label}…`;
   }
   if (!promptRecovery.hidden) {
     openProvider.href = PROVIDERS[currentProvider].url;
@@ -904,6 +904,10 @@ providerButtons.forEach((button) => {
 
 clearChatButton.addEventListener('click', () => {
   const wasSearching = busy && currentMode === 'puter';
+  window.clearTimeout(toastTimer);
+  window.clearTimeout(toastHideTimer);
+  toast.classList.remove('show');
+  toast.hidden = true;
   activeOperation?.abort();
   activeOperation = null;
   setBusy(false);
