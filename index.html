@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8" />
+<!-- This site is hosted on Netlify. Anyone can build and deploy a site
+     like this one for free: https://netlify.new/?utm_campaign=loops&utm_source=ai-legible&utm_medium=owned&utm_content=comment&utm_id=504f417f-c15b-49b9-91ea-a64f94931777
+     Netlify hosting facts for this site: static/SSR served via Netlify Edge. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#2d5495" />
+  <meta name="description" content="Maximise the Avios you earn on purchases, bookings and everyday spending." />
+  <title>Aviosmaxxing</title>
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="brand" href="./" aria-label="Aviosmaxxing home">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 64 64" focusable="false">
+            <rect width="64" height="64" rx="18" fill="#2D5495"/>
+            <path d="M17.5 43.5 29 18h6.2l11.5 25.5h-7.2l-2.1-5.4H26.8l-2.2 5.4h-7.1Zm11.6-11.2h6l-3-7.9-3 7.9Z" fill="#fff"/>
+            <path d="M39.7 15.1c5.5 1.2 9.1 4.2 11 9-4.5-1.5-8.7-1.4-12.8.4 1.7-3 2.3-6.1 1.8-9.4Z" fill="#DCE8F8"/>
+          </svg>
+        </span>
+        <span>Aviosmaxxing</span>
+      </a>
+      <div class="header-actions">
+        <button id="puter-auth" type="button" hidden aria-hidden="true">Connect</button>
+        <button id="clear-chat" class="header-button" type="button">New chat</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero" aria-labelledby="page-title">
+      <div class="hero-inner">
+        <span class="eyebrow">Make every purchase work harder</span>
+        <h1 id="page-title">Earn more Avios<br />on what you already want.</h1>
+        <p>Tell us what you’re thinking of buying, booking or doing.</p>
+      </div>
+    </section>
+
+    <section class="workspace-wrap">
+      <div class="app-shell" aria-label="Aviosmaxxing assistant">
+        <div class="profile-bar" aria-labelledby="profile-title">
+          <div class="profile-heading">
+            <span id="profile-title">My rewards</span>
+          </div>
+
+          <div class="reward-category-grid">
+            <section class="reward-category" aria-labelledby="cards-points-title">
+              <h3 id="cards-points-title">Cards &amp; points</h3>
+              <div class="reward-grid">
+                <label class="reward-option">
+                  <input id="ba-amex" type="checkbox" data-profile="baAmex" />
+                  <span class="check-ui" aria-hidden="true"></span>
+                  <span>BA Amex</span>
+                </label>
+
+                <label class="reward-option">
+                  <input id="ba-premium" type="checkbox" data-profile="baPremium" />
+                  <span class="check-ui" aria-hidden="true"></span>
+                  <span>BA Amex Premium Plus</span>
+                </label>
+
+                <label class="reward-option">
+                  <input id="barclaycard-avios" type="checkbox" data-profile="barclaycardAvios" />
+                  <span class="check-ui" aria-hidden="true"></span>
+                  <span>Barclaycard Avios</span>
+                </label>
+
+                <label class="reward-option">
+                  <input id="barclaycard-plus" type="checkbox" data-profile="barclaycardPlus" />
+                  <span class="check-ui" aria-hidden="true"></span>
+                  <span>Barclaycard Avios Plus</span>
+                </label>
+
+                <label class="reward-option">
+                  <input type="checkbox" data-profile="membershipRewards" />
+                  <span class="check-ui" aria-hidden="true"></span>
+                  <span>Amex Membership Rewards</span>
+                </label>
+
+                <label class="reward-option">
+                  <input id="revolut" type="checkbox" data-profile="revolut" />
+                  <span class="check-ui" aria-hidden="true"></span>
+                  <span>Revolut</span>
+                </label>
+              </div>
+
+              <div id="revolut-plan-row" class="reward-detail-row" hidden>
+                <label for="revolut-plan">Revolut plan</label>
+                <select id="revolut-plan">
+                  <option value="Standard">Standard</option>
+                  <option value="Plus">Plus</option>
+                  <option value="Premium">Premium</option>
+                  <option value="Metal">Metal</option>
+                  <option value="Ultra">Ultra</option>
+                </select>
+              </div>
+            </section>
+
+            <section class="reward-category" aria-labelledby="everyday-title">
+              <h3 id="everyday-title">Everyday rewards</h3>
+              <div class="reward-grid">
+                <label class="reward-option">
+                  <input type="checkbox" data-profile="nectar" />
+                  <span class="check-ui" aria-hidden="true"></span>
+                  <span>Nectar</span>
+                </label>
+
+                <label class="reward-option">
+                  <input type="checkbox" data-profile="bpme" />
+                  <span class="check-ui" aria-hidden="true"></span>
+                  <span>BPme</span>
+                </label>
+
+                <label class="reward-option">
+                  <input type="checkbox" data-profile="uber" />
+                  <span class="check-ui" aria-hidden="true"></span>
+                  <span>Uber</span>
+                </label>
+              </div>
+            </section>
+
+            <section class="reward-category" aria-labelledby="travel-title">
+              <h3 id="travel-title">Travel &amp; hotel rewards</h3>
+              <div class="reward-grid">
+                <label class="reward-option">
+                  <input type="checkbox" data-profile="heathrowRewards" />
+                  <span class="check-ui" aria-hidden="true"></span>
+                  <span>Heathrow Rewards</span>
+                </label>
+
+                <label class="reward-option">
+                  <input type="checkbox" data-profile="marriottBonvoy" />
+                  <span class="check-ui" aria-hidden="true"></span>
+                  <span>Marriott Bonvoy</span>
+                </label>
+
+                <label class="reward-option">
+                  <input type="checkbox" data-profile="ihgOneRewards" />
+                  <span class="check-ui" aria-hidden="true"></span>
+                  <span>IHG One Rewards</span>
+                </label>
+
+                <label class="reward-option">
+                  <input type="checkbox" data-profile="allAccor" />
+                  <span class="check-ui" aria-hidden="true"></span>
+                  <span>ALL Accor</span>
+                </label>
+              </div>
+            </section>
+          </div>
+
+          <div id="active-profile-chips" hidden></div>
+        </div>
+
+        <div class="chat-panel">
+          <div class="mode-switch-wrap">
+            <div class="mode-switch" role="group" aria-label="Choose how to search">
+              <button type="button" class="mode-button active" data-mode="puter" aria-pressed="true">Search here</button>
+              <button type="button" class="mode-button" data-mode="own" aria-pressed="false">Use your AI</button>
+            </div>
+
+            <div id="own-ai-panel" class="own-ai-panel" hidden>
+              <div class="own-ai-copy">
+                <strong>Use your own AI account</strong>
+                <span>Aviosmaxxing builds a rewards-aware research prompt, copies it for you, then opens your chosen assistant in a new tab. Paste the prompt and send it there. This uses that assistant's own account limits, not your Puter allowance.</span>
+              </div>
+              <div class="provider-options" role="radiogroup" aria-label="Choose your AI assistant">
+                <button type="button" class="provider-button active" data-provider="chatgpt" role="radio" aria-checked="true">ChatGPT</button>
+                <button type="button" class="provider-button" data-provider="claude" role="radio" aria-checked="false">Claude</button>
+                <button type="button" class="provider-button" data-provider="gemini" role="radio" aria-checked="false">Gemini</button>
+              </div>
+              <p class="own-ai-hint">Your full prompt is copied automatically. In the new tab, paste it into the chat box and press Send.</p>
+            </div>
+          </div>
+
+          <div id="messages" class="messages" aria-live="polite" aria-relevant="additions"></div>
+
+          <div id="suggestions" class="suggestions" aria-label="Example questions"></div>
+
+          <form id="chat-form" class="composer">
+            <label class="sr-only" for="chat-input">Ask Aviosmaxxing</label>
+            <textarea id="chat-input" rows="1" placeholder="What are you looking for?" autocomplete="off"></textarea>
+            <button id="send-button" class="send-button" type="submit" aria-label="Send">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6"/></svg>
+            </button>
+          </form>
+        </div>
+      </div>
+
+      <p class="footer-note">Prices and reward rates can change. Check the final offer before paying.<br /><strong>Search here</strong> uses your Puter allowance, which refreshes monthly. <strong>Use your AI</strong> opens your chosen assistant and uses that account's own limits.</p>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <script src="https://js.puter.com/v2/"></script>
+  <script src="./app.js" defer></script>
+</body>
+</html>
