@@ -21,6 +21,60 @@
     document.documentElement.dataset.advertising = state;
     status.textContent = message;
   }
+  function prepareDisplayAd() {
+    const placement = document.getElementById('display-ad');
+    const supplied = document.getElementById('display-ad-code')?.content.querySelector('ins');
+    const slot = supplied?.dataset.adSlot || '';
+    // Publisher IDs and ad-unit IDs are different. Never request an invented
+    // slot or show an empty placeholder while the owner creates the real unit.
+    if (!placement || !/^\d{1,20}$/.test(slot) || /^0+$/.test(slot)) return;
+    placement.hidden = false;
+    placement.dataset.state = 'waiting';
+    let requested = false;
+    let visibility;
+    function request() {
+      if (requested || blocked || !allowed || document.hidden) return;
+      const bounds = placement.getBoundingClientRect();
+      if (bounds.top >= window.innerHeight || bounds.bottom <= 0) return;
+      requested = true;
+      visibility?.disconnect();
+      window.removeEventListener('scroll', request);
+      window.removeEventListener('resize', request);
+      document.removeEventListener('visibilitychange', request);
+      const ad = supplied.cloneNode(true);
+      document.getElementById('display-ad-content').append(ad);
+      placement.dataset.state = 'requested';
+      const fill = new MutationObserver(() => {
+        if (ad.dataset.adStatus === 'unfilled') {
+          placement.hidden = true;
+          placement.dataset.state = 'unfilled';
+          fill.disconnect();
+        } else if (ad.dataset.adStatus === 'filled') {
+          placement.dataset.state = 'filled';
+          fill.disconnect();
+        }
+      });
+      fill.observe(ad, { attributes: true, attributeFilter: ['data-ad-status'] });
+      try {
+        (window.adsbygoogle = window.adsbygoogle || []).push({});
+      } catch (_) {
+        fill.disconnect();
+        placement.hidden = true;
+        placement.dataset.state = 'failed';
+      }
+    }
+    if (typeof IntersectionObserver === 'function') {
+      visibility = new IntersectionObserver(entries => {
+        if (entries.some(entry => entry.isIntersecting)) request();
+      });
+      visibility.observe(placement);
+    } else {
+      window.addEventListener('scroll', request, { passive: true });
+    }
+    window.addEventListener('resize', request);
+    document.addEventListener('visibilitychange', request);
+    request();
+  }
   function apply() {
     if (blocked || !allowed) {
       if (started) {
@@ -42,7 +96,10 @@
     script.async = true;
     script.src = supplied.src;
     script.crossOrigin = supplied.crossOrigin;
-    script.addEventListener('load', () => report('enabled', 'Google advertising is enabled under your current privacy choices.'));
+    script.addEventListener('load', () => {
+      report('enabled', 'Google advertising is enabled under your current privacy choices.');
+      prepareDisplayAd();
+    });
     script.addEventListener('error', () => report('unavailable', 'Google advertising could not load. You can keep using Aviosmaxxing.'));
     report('loading', 'Loading Google advertising under your current privacy choices.');
     document.head.append(script);

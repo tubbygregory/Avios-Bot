@@ -74,7 +74,13 @@ async function open(t, { storage, blockedStorage, sdkMode = 'mock', cmpMode = 'm
     const url = route.request().url();
     if (url === 'https://js.puter.com/v2/') return sdkMode === 'pending' ? undefined : sdkMode === 'missing' ? route.abort() : route.fulfill({ contentType: 'text/javascript', body: sdk });
     if (url.startsWith('https://fundingchoicesmessages.google.com/')) return cmpMode === 'pending' ? undefined : cmpMode === 'missing' ? route.abort() : route.fulfill({contentType:'text/javascript',body:cmpMode === 'no-api' ? '/* CMP did not initialise */' : consentSDK});
-    if (url.startsWith('https://pagead2.googlesyndication.com/')) return route.fulfill({contentType:'text/javascript',body:'window.__adLoads=(window.__adLoads||0)+1;'});
+    if (url.startsWith('https://pagead2.googlesyndication.com/')) return route.fulfill({contentType:'text/javascript',body:`
+      window.__adLoads=(window.__adLoads||0)+1;
+      window.adsbygoogle={push:()=>{
+        window.__adRequests=(window.__adRequests||0)+1;
+        if(window.__adPushThrows) throw new Error('Synthetic advertising failure');
+        document.querySelector('#display-ad-content ins')?.setAttribute('data-ad-status',window.__adUnfilled?'unfilled':'filled');
+      }};`});
     return route.fulfill({ contentType: 'text/html', body: '<title>Assistant test destination</title>' });
   });
   await context.addInitScript(({ storage, blockedStorage, consent }) => {
@@ -893,7 +899,9 @@ test('AdSense verification and seller details are public but the supplied advert
   await p.evaluate(data=>window.__emitConsent(data),acceptedConsent);
   assert.equal(await p.locator('#adsense-sdk').count(),1,'only one advertising loader');
   assert.equal(await p.locator('#adsense-sdk').getAttribute('crossorigin'),'anonymous');
-  assert.equal(await p.locator('ins.adsbygoogle').count(),0,'no invented ad unit or intrusive placements');
+  assert.equal(await p.locator('#display-ad-code').evaluate(e=>e.content.querySelector('ins').dataset.adSlot),'7897539333','publisher-supplied ad unit');
+  assert.ok(await p.locator('ins.adsbygoogle').count()<=1,'at most one manual ad');
+  assert.equal(await p.locator('#messages ins.adsbygoogle, .composer-dock ins.adsbygoogle').count(),0,'search controls stay clear');
 });
 
 test('missing jurisdiction, incomplete consent, rejection and CMP failures cannot enable advertising', async t => {
@@ -1020,4 +1028,110 @@ test('an advertising block survives the required reload even when preference wri
   await privacy(p);assert.equal(await p.locator('#block-advertising').isChecked(),true);
   await p.locator('#block-advertising').uncheck();await p.waitForFunction(()=>window.__adLoads===1);
   assert.equal(new URL(p.url()).hash,'');
+});
+
+// Synthetic slot values are used only with the fully intercepted ad service.
+async function configureTestAd(page, slot = '1234567890') {
+  await page.locator('#display-ad-code').evaluate((template, slot) => {
+    template.content.querySelector('ins').dataset.adSlot = slot;
+  }, slot);
+}
+async function acceptTestAds(page) {
+  await page.waitForFunction(()=>Boolean(window.__emitConsent));
+  await page.evaluate(data=>window.__emitConsent(data),acceptedConsent);
+  await page.waitForFunction(()=>window.__adLoads===1);
+}
+
+test('an unconfigured or invalid manual ad slot stays hidden without reserving empty space or requesting ads', async t => {
+  for(const slot of ['', 'ca-pub-8404673257565926', '0', 'not-a-slot']) {
+    const p=await open(t,{viewport:{width:390,height:844},hasTouch:true});
+    await configureTestAd(p,slot);await acceptTestAds(p);
+    await p.evaluate(()=>window.scrollTo(0,document.documentElement.scrollHeight));
+    assert.equal(await p.locator('#display-ad').isVisible(),false,slot+' remains hidden');
+    assert.equal(await p.locator('ins.adsbygoogle').count(),0);
+    assert.equal(await p.evaluate(()=>window.__adRequests||0),0);
+  }
+});
+
+test('one configured display ad waits for consent and visibility, then never refreshes on resize or new chat', async t => {
+  const p=await open(t,{viewport:{width:390,height:844},hasTouch:true});
+  await configureTestAd(p);
+  assert.equal(await p.locator('#display-ad').isVisible(),false);
+  assert.equal(await p.locator('#adsense-sdk').count(),0);
+  const composer=await p.locator('#send-button').boundingBox();
+  await acceptTestAds(p);
+  assert.equal(await p.evaluate(()=>window.__adRequests||0),0,'no below-fold request');
+  const after=await p.locator('#send-button').boundingBox();
+  assert.ok(Math.abs(after.y-composer.y)<1,'ad does not move the initial composer');
+  await p.locator('#display-ad').scrollIntoViewIfNeeded();
+  await p.waitForFunction(()=>window.__adRequests===1);
+  const ad=p.locator('#display-ad-content ins');
+  assert.equal(await ad.getAttribute('data-ad-slot'),'1234567890');
+  assert.equal(await ad.getAttribute('data-ad-client'),'ca-pub-8404673257565926');
+  assert.equal(await ad.getAttribute('data-ad-format'),'horizontal');
+  assert.equal(await ad.getAttribute('data-full-width-responsive'),'false');
+  assert.equal(await p.locator('#display-ad .display-ad-label').textContent(),'Advertisement');
+  assert.equal(await p.locator('#display-ad').evaluate(e=>getComputedStyle(e).position),'static');
+  assert.equal(await p.locator('#messages ins.adsbygoogle, .composer-dock ins.adsbygoogle').count(),0);
+  await p.setViewportSize({width:320,height:568});
+  await p.locator('#clear-chat').click();
+  await p.evaluate(data=>window.__emitConsent(data),acceptedConsent);
+  assert.equal(await p.evaluate(()=>window.__adRequests),1,'no automatic refresh');
+});
+
+test('rejected consent and the browser advertising block prevent a configured manual ad', async t => {
+  const p=await open(t,{viewport:{width:390,height:844}});await configureTestAd(p);
+  await p.waitForFunction(()=>document.documentElement.dataset.advertising==='declined');
+  await p.evaluate(()=>window.scrollTo(0,document.documentElement.scrollHeight));
+  assert.equal(await p.locator('#display-ad').isVisible(),false);
+  await privacy(p);await p.locator('#block-advertising').check();
+  await p.evaluate(data=>window.__emitConsent(data),acceptedConsent);
+  assert.equal(await p.locator('#adsense-sdk').count(),0);
+  assert.equal(await p.locator('#display-ad').isVisible(),false);
+  assert.equal(await p.evaluate(()=>window.__adRequests||0),0);
+});
+
+test('an unfilled manual ad hides its label and reserved space without retrying', async t => {
+  const p=await open(t);await configureTestAd(p);await p.evaluate(()=>window.__adUnfilled=true);
+  await acceptTestAds(p);await p.locator('#display-ad').scrollIntoViewIfNeeded();
+  await p.waitForFunction(()=>document.getElementById('display-ad').dataset.state==='unfilled');
+  assert.equal(await p.locator('#display-ad').isVisible(),false);
+  await p.setViewportSize({width:390,height:844});await ask(p);await idle(p);
+  assert.equal(await p.evaluate(()=>window.__adRequests),1);
+  assert.equal(await p.locator('.message.assistant .answer-content').count(),1);
+});
+
+test('manual ad queue failures leave search usable and do not automatically retry', async t => {
+  const p=await open(t);await configureTestAd(p);await p.evaluate(()=>window.__adPushThrows=true);
+  await acceptTestAds(p);await p.locator('#display-ad').scrollIntoViewIfNeeded();
+  await p.waitForFunction(()=>document.getElementById('display-ad').dataset.state==='failed');
+  assert.equal(await p.locator('#display-ad').isVisible(),false);
+  await p.setViewportSize({width:390,height:844});await ask(p);await idle(p);
+  assert.equal(await p.evaluate(()=>window.__adRequests),1);
+  assert.equal(await p.locator('.message.assistant .answer-content').count(),1);
+});
+
+test('a configured manual ad fits phone and desktop widths, respects every palette and stays clear of chat controls', async t => {
+  for(const mode of ['light','dark','contrast']) {
+    const p=await open(t,{viewport:{width:320,height:568},hasTouch:true});
+    await appearance(p,mode);await p.locator('#close-tools').click();
+    await configureTestAd(p);await acceptTestAds(p);
+    await p.locator('#display-ad').scrollIntoViewIfNeeded();await p.waitForFunction(()=>window.__adRequests===1);
+    await p.evaluate(axe.source);
+    const results=await p.evaluate(()=>axe.run(document,{runOnly:{type:'tag',values:['wcag2a','wcag2aa','wcag21aa']}}));
+    assert.deepEqual(results.violations.map(v=>({id:v.id,targets:v.nodes.map(n=>n.target)})),[],mode);
+    for(const [width,height] of [[320,568],[390,844],[1280,900]]) {
+      await p.setViewportSize({width,height});await p.locator('#display-ad').scrollIntoViewIfNeeded();
+      const box=await p.locator('#display-ad').boundingBox();
+      const dock=await p.locator('.composer-dock').boundingBox();
+      assert.ok(box.x>=0&&box.x+box.width<=width,mode+' ad fits '+width);
+      assert.ok(box.y-dock.y-dock.height>=32,mode+' ad has space below chat controls');
+      assert.ok(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+    }
+    await p.setViewportSize({width:390,height:430});await p.locator('#chat-input').focus();
+    await p.locator('#send-button').scrollIntoViewIfNeeded();
+    const send=await p.locator('#send-button').boundingBox();
+    assert.ok(send.y>=0&&send.y+send.height<=431,'keyboard-sized composer remains usable');
+    assert.equal(await p.evaluate(()=>window.__adRequests),1);
+  }
 });

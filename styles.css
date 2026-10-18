@@ -134,6 +134,10 @@ details[open] > .profile-summary .profile-edit svg { transform: rotate(180deg); 
 .privacy-links { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 0 16px; padding: 0 14px 6px; }
 .privacy-links a, .privacy-links button { display: inline-flex; align-items: center; min-height: 44px; padding: 8px 0; color: var(--avios-blue); font-size: 12px; line-height: 1.4; text-decoration: underline; }
 .privacy-links button { border: 0; background: transparent; }
+.display-ad { width: min(920px, 100%); margin: 48px auto 24px; padding-inline: env(safe-area-inset-left, 0px) env(safe-area-inset-right, 0px); text-align: center; }
+.display-ad-label { margin: 0 0 10px; padding-inline: 16px; color: var(--secondary); font-size: 12px; line-height: 1.5; }
+.display-ad-content { width: min(728px, 100%); min-height: 100px; margin: auto; }
+.display-ad-content .adsbygoogle { display: block; width: 100%; }
 .privacy-document { width: min(760px, calc(100% - 32px)); margin: 30px auto; padding-bottom: env(safe-area-inset-bottom, 0px); font-size: 16px; line-height: 1.7; overflow-wrap: anywhere; }
 .privacy-document h1, .privacy-document h2 { color: var(--ink); line-height: 1.3; }
 .privacy-document h1 { font-size: 30px; }
