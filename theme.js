@@ -39,6 +39,7 @@
   });
   document.addEventListener('DOMContentLoaded', () => {
     const select = document.getElementById('appearance');
+    if (!select) return;
     select.value = preference;
     select.addEventListener('change', () => {
       preference = normalise(select.value);

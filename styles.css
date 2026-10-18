@@ -131,6 +131,21 @@ details[open] > .profile-summary .profile-edit svg { transform: rotate(180deg); 
 .app-notes summary { width: fit-content; margin: auto; padding: 8px; cursor: pointer; }
 .app-notes .footer-note, .install-hint { font-size: 12px; line-height: 1.6; text-align: left; }
 .install-hint { margin: 10px 0 0; }
+.privacy-links { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 0 16px; padding: 0 14px 6px; }
+.privacy-links a, .privacy-links button { display: inline-flex; align-items: center; min-height: 44px; padding: 8px 0; color: var(--avios-blue); font-size: 12px; line-height: 1.4; text-decoration: underline; }
+.privacy-links button { border: 0; background: transparent; }
+.privacy-document { width: min(760px, calc(100% - 32px)); margin: 30px auto; padding-bottom: env(safe-area-inset-bottom, 0px); font-size: 16px; line-height: 1.7; overflow-wrap: anywhere; }
+.privacy-document h1, .privacy-document h2 { color: var(--ink); line-height: 1.3; }
+.privacy-document h1 { font-size: 30px; }
+.privacy-document h2 { font-size: 21px; margin-top: 28px; }
+.privacy-document a, #privacy-dialog a { color: var(--avios-blue); }
+#privacy-dialog { width: min(560px, calc(100% - 24px)); max-width: calc(100% - 24px); max-height: calc(100dvh - 32px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); padding: 20px; overflow-y: auto; overscroll-behavior: contain; border: 1px solid var(--line-strong); border-radius: 16px; background: var(--white); color: var(--text); font-size: 15px; line-height: 1.6; }
+#privacy-dialog::backdrop { background: rgba(18,43,85,.5); }
+.privacy-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.privacy-heading h2 { margin: 0; color: var(--ink); font-size: 21px; line-height: 1.3; }
+.privacy-block { display: flex; align-items: flex-start; gap: 10px; min-height: 44px; margin-top: 18px; padding-block: 10px; cursor: pointer; }
+.privacy-block input { width: 20px; height: 20px; margin: 2px 0 0; flex-shrink: 0; accent-color: var(--avios-blue); }
+.privacy-block:has(input:focus-visible) { outline: 3px solid var(--avios-blue); outline-offset: 3px; }
 
 .site-header {
   position: sticky;

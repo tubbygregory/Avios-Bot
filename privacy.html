@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="base-uri 'none'; object-src 'none'; form-action 'none'; script-src 'self' https://fundingchoicesmessages.google.com https://pagead2.googlesyndication.com https://tpc.googlesyndication.com https://www.googletagservices.com https://www.gstatic.com" />
+  <meta name="referrer" content="strict-origin-when-cross-origin" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#f5f8fc" />
+  <meta name="description" content="How Aviosmaxxing uses browser storage, AI services and Google advertising, and how to manage your privacy choices." />
+  <title>Privacy notice — Aviosmaxxing</title>
+  <script src="./theme.js"></script>
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body class="privacy-page">
+  <header class="site-header"><div class="header-inner"><a class="brand" href="./">Aviosmaxxing</a><a class="tool-link" href="./">Back to search</a></div></header>
+  <main class="privacy-document">
+    <h1>Privacy notice</h1>
+    <p>Last updated: 18 October 2026. This notice covers <strong>aviosmaxxing.co.uk</strong>.</p>
+    <p id="operator-contact">Aviosmaxxing is an independently operated website. Operator contact details are being added before advertising is activated.</p>
+    <button class="tool-button" type="button" data-privacy-choices aria-haspopup="dialog">Privacy choices</button>
+
+    <h2>What stays on your device</h2>
+    <p>Your selected cards and loyalty programmes, AI mode/provider and appearance preference are stored in your browser so the app can remember your choices. Example-question rotation uses session storage. Saved searches, answers and reward snapshots are stored locally only when you explicitly save them. The advertising-block preference is stored to remember your privacy choice.</p>
+    <p>These functional settings are separate from advertising consent. They remain until you change them or clear browser storage; session storage ends with the browser session. Use <strong>Tools → Saved</strong> to export or delete saved items. <strong>New chat</strong> clears the current conversation from the app’s memory; it does not delete saved items or data already sent to another service. Local items do not automatically sync between devices.</p>
+
+    <h2>AI searches and external assistants</h2>
+    <p><strong>Search here</strong> uses Puter. Loading its SDK connects your browser to Puter. When you submit a search, your question, selected rewards and recent conversation are sent through Puter to the selected model provider. Your Puter account and allowance are handled by Puter. See <a href="https://puter.com/privacy" target="_blank" rel="noopener noreferrer">Puter’s privacy policy</a>.</p>
+    <p><strong>Use your AI</strong> prepares a prompt and attempts to copy it to your clipboard. Opening ChatGPT, Claude or Gemini connects you to that provider; the prompt is sent when you paste and submit it yourself. That provider’s privacy policy and account settings apply. Aviosmaxxing cannot read your account or retrieve its answer automatically.</p>
+    <p>Do not include payment-card numbers, passwords or other sensitive information in searches or saved answers. Export files may contain personal search details; keep them private.</p>
+
+    <h2>Google advertising and consent</h2>
+    <p>We use Google AdSense to support the site. Google and its advertising partners may process information such as your IP address, device/browser information, page context, ad interactions and identifiers. Depending on your choices and applicable rules, cookies or similar storage may support advertising, personalisation, measurement and fraud prevention.</p>
+    <p>Google’s certified consent manager presents advertising choices where required, including in the UK, EEA and Switzerland. You can accept, reject or manage those choices. The app waits for the consent manager before loading the AdSense advertising code; missing or failed consent information keeps that code off. Where GDPR consent applies, this app also requires permission for device storage and Google’s vendor before loading it. Google remains responsible for applying all other advertising-purpose and regional signals.</p>
+    <p>You can reopen Google’s choices using <strong>Privacy choices → Review Google privacy choices</strong>. You can also enable <strong>Block advertising on this browser</strong>, regardless of region. This extra block does not erase Google’s existing cookies; review its choices or use your browser controls to manage those. Withdrawing consent or enabling the block reloads a page that has already loaded advertising, so that Google’s code does not continue running on that page. Your rewards and saved items are kept.</p>
+    <p>Google manages its own consent records, advertising data retention and any international transfers under its published policies. See <a href="https://policies.google.com/technologies/partner-sites" target="_blank" rel="noopener noreferrer">how Google uses information from sites using its services</a> and <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">Google’s privacy policy</a>. We have not added a separate analytics service.</p>
+
+    <h2>Hosting and links</h2>
+    <p>GitHub Pages hosts this site. Hosting and domain services receive technical request information needed to deliver it; their own policies apply. See <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement" target="_blank" rel="noopener noreferrer">GitHub’s privacy statement</a>. Following an external source or issuer link connects you to that website. Third-party scripts, including Puter and Google, run in this page and are trusted service code.</p>
+
+    <h2>Your rights and requests</h2>
+    <p>Depending on the circumstances, UK data-protection rights include access, correction, deletion, restriction, portability and objection. You can withdraw advertising consent at any time without changing the lawfulness of earlier processing. Contact the operator for requests relating to this site; for information held in a Puter or other provider account, use that provider’s privacy channels too. The site has no user account or server copy of your locally saved items.</p>
+    <p>You can complain to the <a href="https://ico.org.uk/make-a-complaint/" target="_blank" rel="noopener noreferrer">Information Commissioner’s Office</a>. We update this notice when the site’s data use changes.</p>
+  </main>
+  <dialog id="privacy-dialog" aria-labelledby="privacy-title">
+    <div class="privacy-heading"><h2 id="privacy-title">Your privacy choices</h2><button id="close-privacy" class="tool-button" type="button">Close</button></div>
+    <p>Review Google’s advertising choices or block advertising on this browser.</p>
+    <p id="privacy-status" role="status">Waiting for Google’s consent service. Advertising stays off while consent is unresolved.</p>
+    <button id="review-google-consent" class="tool-button" type="button">Review Google privacy choices</button>
+    <label class="privacy-block"><input id="block-advertising" type="checkbox"><span>Block advertising on this browser</span></label>
+    <p id="privacy-storage" class="tool-copy">This additional block is saved on this browser. Turning it on reloads the page if advertising has already started, clearing any unsaved conversation.</p>
+  </dialog>
+  <script src="./consent.js" defer></script>
+</body>
+</html>

@@ -54,14 +54,31 @@ window.puter = {
   }}
 };`;
 
-async function open(t, { storage, blockedStorage, sdkMode = 'mock', viewport, hasTouch = false, colorScheme, contrast, forcedColors } = {}) {
+const consentSDK = `
+window.__consentListeners = [];
+window.__privacyReviews = 0;
+window.__emitConsent = (data, success = true) => window.__consentListeners.forEach(callback => callback(data, success));
+window.__tcfapi = (command, version, callback) => {
+  if (command !== 'addEventListener' || version !== 2) throw new Error('Unexpected consent API command');
+  window.__consentListeners.push(callback);
+  callback(window.__initialConsent || {cmpStatus:'loaded',eventStatus:'tcloaded',gdprApplies:true,tcString:'test-consent',purpose:{consents:{1:false}},vendor:{consents:{755:false}}}, true);
+};
+window.googlefc.showRevocationMessage = () => { window.__privacyReviews++; };
+window.googlefc.callbackQueue.forEach(callback => callback.CONSENT_API_READY?.());`;
+
+async function open(t, { storage, blockedStorage, sdkMode = 'mock', cmpMode = 'mock', consent, clock = false, viewport, hasTouch = false, colorScheme, contrast, forcedColors } = {}) {
   const context = await browser.newContext({ viewport, hasTouch, colorScheme, contrast, forcedColors, serviceWorkers: 'block' });
   t.after(() => context.close());
   // No provider, SDK or AI traffic escapes this deterministic test suite.
-  await context.route('https://**/*', route => route.request().url() === 'https://js.puter.com/v2/'
-    ? sdkMode === 'pending' ? undefined : sdkMode === 'missing' ? route.abort() : route.fulfill({ contentType: 'text/javascript', body: sdk })
-    : route.fulfill({ contentType: 'text/html', body: '<title>Assistant test destination</title>' }));
-  await context.addInitScript(({ storage, blockedStorage }) => {
+  await context.route('https://**/*', route => {
+    const url = route.request().url();
+    if (url === 'https://js.puter.com/v2/') return sdkMode === 'pending' ? undefined : sdkMode === 'missing' ? route.abort() : route.fulfill({ contentType: 'text/javascript', body: sdk });
+    if (url.startsWith('https://fundingchoicesmessages.google.com/')) return cmpMode === 'pending' ? undefined : cmpMode === 'missing' ? route.abort() : route.fulfill({contentType:'text/javascript',body:cmpMode === 'no-api' ? '/* CMP did not initialise */' : consentSDK});
+    if (url.startsWith('https://pagead2.googlesyndication.com/')) return route.fulfill({contentType:'text/javascript',body:'window.__adLoads=(window.__adLoads||0)+1;'});
+    return route.fulfill({ contentType: 'text/html', body: '<title>Assistant test destination</title>' });
+  });
+  await context.addInitScript(({ storage, blockedStorage, consent }) => {
+    window.__initialConsent = consent;
     if (storage) for (const [key, value] of Object.entries(storage)) localStorage.setItem(key, value);
     if (blockedStorage) Object.defineProperty(Storage.prototype, 'setItem', { value() { throw new DOMException('Blocked', 'SecurityError'); } });
     window.__clipboard = [];
@@ -71,8 +88,9 @@ async function open(t, { storage, blockedStorage, sdkMode = 'mock', viewport, ha
       window.__clipboard.push(text);
     } } });
     document.execCommand = () => Boolean(window.__legacyCopy);
-  }, { storage, blockedStorage });
+  }, { storage, blockedStorage, consent });
   const page = await context.newPage();
+  if (clock) await page.clock.install();
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   t.after(() => assert.deepEqual(errors, [], 'no uncaught browser errors'));
@@ -755,12 +773,16 @@ test('selected-card tools fit narrow Safari screens and a keyboard-sized viewpor
     assert.ok(await p.locator('#tools-dialog').evaluate(e=>e.scrollWidth<=e.clientWidth),key+' has no horizontal overflow');
   }
   await p.setViewportSize({width:390,height:430});await p.locator('#calc-source').focus();
+  // Reproduce the stale visual-viewport value from the failed production check.
+  // The CSS must cap against the current layout viewport before resize updates.
+  await p.evaluate(()=>document.documentElement.style.setProperty('--app-viewport-height','568px'));
   const dialog=await p.locator('#tools-dialog').boundingBox();assert.ok(dialog.y>=0&&dialog.y+dialog.height<=430);
   const close=await p.locator('#close-tools').boundingBox();assert.ok(close.y>=0&&close.y+close.height<=430);
   await p.locator('#calculator-form button[type="submit"]').scrollIntoViewIfNeeded();
   const heading=await p.locator('.tools-heading').boundingBox();
   assert.ok(heading.y<=dialog.y+2,'sticky heading covers the top edge when scrolled');
   assert.ok(heading.width>=dialog.width-2,'heading background covers the full dialog width');
+  await p.evaluate(()=>window.dispatchEvent(new Event('resize')));
   await p.locator('#close-tools').click();assert.equal(await p.locator('#tools-dialog').evaluate(e=>e.open),false);
 });
 
@@ -847,4 +869,155 @@ test('high contrast keeps strong text, input borders, focus indicators and visib
   assert.ok(contrast.text>=7);assert.ok(contrast.button>=7);assert.ok(contrast.border>=3);assert.ok(contrast.focus>=3);assert.equal(contrast.outlineWidth,'3px');
   await p.locator('#close-tools').click();await choose(p,'#ba-amex');
   assert.equal(await p.locator('label').filter({has:p.locator('#ba-amex')}).evaluate(e=>getComputedStyle(e).outlineStyle),'solid');
+});
+
+
+const AD_BLOCK_KEY = 'aviosmaxxing-advertising-blocked-v1';
+const acceptedConsent = {cmpStatus:'loaded',eventStatus:'useractioncomplete',gdprApplies:true,tcString:'test-consent',purpose:{consents:{1:true}},vendor:{consents:{755:true}}};
+async function privacy(page) {
+  await page.locator('[data-privacy-choices]').first().click();
+  await page.locator('#privacy-dialog').waitFor();
+}
+
+test('AdSense verification and seller details are public but the supplied advertising script stays inert until consent', async t => {
+  const p = await open(t);
+  assert.equal(await p.locator('meta[name="google-adsense-account"]').getAttribute('content'),'ca-pub-8404673257565926');
+  assert.match(await (await p.request.get(origin+'ads.txt')).text(),/^google\.com, pub-8404673257565926, DIRECT, f08c47fec0942fa0\s*$/);
+  assert.equal(await p.locator('#adsense-sdk').count(),0);
+  const supplied=await p.locator('#adsense-code').evaluate(e=>{const s=e.content.querySelector('script');return {src:s.src,async:s.async,crossOrigin:s.crossOrigin};});
+  assert.equal(supplied.src,'https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-8404673257565926');
+  assert.equal(supplied.async,true);assert.equal(supplied.crossOrigin,'anonymous');
+  await p.waitForFunction(()=>document.documentElement.dataset.advertising==='declined');
+  await p.evaluate(data=>window.__emitConsent(data),acceptedConsent);
+  await p.waitForFunction(()=>window.__adLoads===1);
+  await p.evaluate(data=>window.__emitConsent(data),acceptedConsent);
+  assert.equal(await p.locator('#adsense-sdk').count(),1,'only one advertising loader');
+  assert.equal(await p.locator('#adsense-sdk').getAttribute('crossorigin'),'anonymous');
+  assert.equal(await p.locator('ins.adsbygoogle').count(),0,'no invented ad unit or intrusive placements');
+});
+
+test('missing jurisdiction, incomplete consent, rejection and CMP failures cannot enable advertising', async t => {
+  const p=await open(t);
+  await p.waitForFunction(()=>Boolean(window.__emitConsent));
+  for (const data of [
+    {...acceptedConsent,gdprApplies:undefined},
+    {...acceptedConsent,tcString:''},
+    {...acceptedConsent,vendor:{consents:{755:false}}},
+    {...acceptedConsent,purpose:{consents:{1:false}}},
+    {...acceptedConsent,cmpStatus:'error'},
+    {...acceptedConsent,eventStatus:'cmpuishown'},
+    {...acceptedConsent,gdprApplies:'false'},
+    null
+  ]) await p.evaluate(data=>window.__emitConsent(data),data);
+  await p.evaluate(data=>window.__emitConsent(data,false),acceptedConsent);
+  assert.equal(await p.locator('#adsense-sdk').count(),0);
+  const unavailable=await open(t,{cmpMode:'missing'});
+  await unavailable.waitForFunction(()=>document.documentElement.dataset.advertising==='unavailable');
+  await unavailable.locator('[data-mode="own"]').click();await fakePopup(unavailable);await ask(unavailable);await idle(unavailable);
+  assert.match(await unavailable.locator('#generated-prompt').inputValue(),/laptop/i);
+  await privacy(unavailable);await unavailable.locator('#review-google-consent').click();
+  assert.match(await unavailable.locator('#privacy-status').textContent(),/unavailable.*Block advertising/);
+  assert.equal(await unavailable.locator('#privacy-dialog').evaluate(e=>e.open),true);
+});
+
+test('a consent manager may confirm non-GDPR applicability but unknown applicability never bypasses the gate', async t => {
+  const p=await open(t,{consent:{cmpStatus:'loaded',eventStatus:'tcloaded'}});
+  await p.waitForFunction(()=>Boolean(window.__emitConsent));
+  assert.equal(await p.locator('#adsense-sdk').count(),0);
+  await p.evaluate(()=>window.__emitConsent({cmpStatus:'loaded',eventStatus:'tcloaded',gdprApplies:false}));
+  await p.waitForFunction(()=>window.__adLoads===1);
+});
+
+test('persistent advertising block overrides Google consent, survives reload and syncs across tabs', async t => {
+  const p=await open(t,{storage:{[AD_BLOCK_KEY]:'1'},consent:acceptedConsent});
+  await p.waitForFunction(()=>Boolean(window.__emitConsent));
+  assert.equal(await p.locator('#adsense-sdk').count(),0);
+  await privacy(p);assert.equal(await p.locator('#block-advertising').isChecked(),true);
+  const other=await p.context().newPage();await other.goto(origin,{waitUntil:'domcontentloaded'});
+  await other.waitForFunction(()=>Boolean(window.__emitConsent));
+  await p.locator('#block-advertising').uncheck();
+  await p.waitForFunction(()=>window.__adLoads===1);await other.waitForFunction(()=>window.__adLoads===1);
+  await Promise.all([p.waitForEvent('domcontentloaded'),p.locator('#block-advertising').click()]);
+  await p.waitForFunction(()=>Boolean(window.__emitConsent));
+  await other.waitForFunction(()=>document.documentElement.dataset.advertising==='blocked');
+  assert.equal(await p.locator('#adsense-sdk').count(),0);assert.equal(await other.locator('#adsense-sdk').count(),0);
+  assert.equal(await p.evaluate(key=>localStorage.getItem(key),AD_BLOCK_KEY),'1');
+});
+
+test('withdrawing Google consent reloads a page that already loaded advertising', async t => {
+  const p=await open(t);await p.waitForFunction(()=>Boolean(window.__emitConsent));
+  await p.evaluate(data=>window.__emitConsent(data),acceptedConsent);await p.waitForFunction(()=>window.__adLoads===1);
+  await Promise.all([p.waitForEvent('domcontentloaded'),p.evaluate(()=>window.__emitConsent({cmpStatus:'loaded',eventStatus:'useractioncomplete',gdprApplies:true,tcString:'test-declined',purpose:{consents:{1:false}},vendor:{consents:{755:false}}}))]);
+  await p.waitForFunction(()=>Boolean(window.__emitConsent));
+  assert.equal(await p.locator('#adsense-sdk').count(),0);
+});
+
+test('Google privacy choices can be reopened and privacy controls fit phones in every palette', async t => {
+  const p=await open(t,{viewport:{width:320,height:568},hasTouch:true});
+  for(const mode of ['light','dark','contrast']) {
+    await appearance(p,mode);await p.locator('#close-tools').click();
+    await privacy(p);await p.evaluate(axe.source);
+    const results=await p.evaluate(()=>axe.run(document,{runOnly:{type:'tag',values:['wcag2a','wcag2aa','wcag21aa']}}));
+    assert.deepEqual(results.violations.map(v=>({id:v.id,targets:v.nodes.map(n=>n.target)})),[],mode);
+    assert.ok(await p.locator('#privacy-dialog').evaluate(e=>e.scrollWidth<=e.clientWidth),'privacy dialog fits');
+    await p.keyboard.press('Escape');
+    assert.equal(await p.locator('#privacy-dialog').evaluate(e=>e.open),false);
+  }
+  await p.waitForFunction(()=>Boolean(window.__emitConsent));
+  await privacy(p);await p.locator('#review-google-consent').click();
+  assert.equal(await p.evaluate(()=>window.__privacyReviews),1);
+  assert.equal(await p.locator('#privacy-dialog').evaluate(e=>e.open),false);
+  await p.goto(origin+'privacy.html',{waitUntil:'domcontentloaded'});
+  assert.match(await p.title(),/Privacy notice/);
+  await p.waitForFunction(()=>Boolean(window.__emitConsent));
+  await p.evaluate(data=>window.__emitConsent(data),acceptedConsent);
+  assert.equal(await p.locator('#adsense-sdk').count(),0,'no advertising on the privacy notice');
+  assert.ok(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+  await p.evaluate(axe.source);
+  const policy=await p.evaluate(()=>axe.run(document,{runOnly:{type:'tag',values:['wcag2a','wcag2aa','wcag21aa']}}));
+  assert.deepEqual(policy.violations.map(v=>v.id),[]);
+});
+
+
+test('stalled consent and failed advertising requests leave search usable without automatic retries', async t => {
+  const waiting=await open(t,{cmpMode:'pending',clock:true});
+  await waiting.clock.fastForward(10001);
+  assert.equal(await waiting.locator('html').getAttribute('data-advertising'),'unavailable');
+  assert.equal(await waiting.locator('#adsense-sdk').count(),0);
+  await ask(waiting);await idle(waiting);
+  assert.equal(await waiting.locator('.message.assistant .answer-content').count(),1);
+  const p=await open(t);
+  let requests=0;
+  await p.context().route('https://pagead2.googlesyndication.com/**',route=>{requests++;return route.abort();});
+  await p.waitForFunction(()=>Boolean(window.__emitConsent));
+  await p.evaluate(data=>window.__emitConsent(data),acceptedConsent);
+  await p.waitForFunction(()=>document.documentElement.dataset.advertising==='unavailable');
+  await p.evaluate(data=>window.__emitConsent(data),acceptedConsent);
+  assert.equal(requests,1,'no automatic advertising retries');
+  await ask(p);await idle(p);assert.equal(await p.locator('.message.assistant .answer-content').count(),1);
+});
+
+test('privacy storage failures preserve an explicit block for the visit without changing reward preferences', async t => {
+  const p=await open(t,{blockedStorage:true});
+  await privacy(p);await p.locator('#block-advertising').check();
+  assert.match(await p.locator('#privacy-storage').textContent(),/could not save.*visit/);
+  await p.waitForFunction(()=>Boolean(window.__emitConsent));
+  await p.evaluate(data=>window.__emitConsent(data),acceptedConsent);
+  assert.equal(await p.locator('#adsense-sdk').count(),0);
+  await p.locator('#close-privacy').click();await choose(p,'#ba-premium');
+  await p.locator('#done-rewards').click();await ask(p);await idle(p);
+  assert.match(await p.evaluate(()=>window.__calls[0].messages[0].content),/Premium Plus/);
+});
+
+
+test('an advertising block survives the required reload even when preference writes fail', async t => {
+  const p=await open(t,{blockedStorage:true,consent:acceptedConsent});
+  await p.waitForFunction(()=>window.__adLoads===1);await privacy(p);
+  await Promise.all([p.waitForEvent('domcontentloaded'),p.locator('#block-advertising').click()]);
+  await p.waitForFunction(()=>Boolean(window.__emitConsent));
+  assert.equal(new URL(p.url()).hash,'#advertising-off');
+  assert.equal(await p.locator('#adsense-sdk').count(),0);
+  await privacy(p);assert.equal(await p.locator('#block-advertising').isChecked(),true);
+  await p.locator('#block-advertising').uncheck();await p.waitForFunction(()=>window.__adLoads===1);
+  assert.equal(new URL(p.url()).hash,'');
 });

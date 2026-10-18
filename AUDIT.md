@@ -35,6 +35,10 @@ The first audit also fixed clipboard/popup recovery, duplicate submissions, stal
 
 ## Hosting security
 
+The 18 October advertising change adds Google's consent/advertising script hosts to the CSP, preserving the inline-script and base-injection protections. Google's published consent message manages consent; an additional TCF gate holds back the supplied AdSense loader and a browser-local block overrides it. `privacy.html` documents data use. The Google endpoints are denied by the cloud proxy, so actual message presentation and compatibility require a browser outside that proxy. No ad slot was added. Operator identity/contact details remain a release prerequisite until supplied.
+
+The previously failed production Chromium check was traced to the Tools dialog briefly retaining an old visual-viewport height during resize. Its CSS maximum height now also caps against `100dvh`, keeping it within the current layout viewport before the resize event updates the stored height. Existing viewport assertions are retained.
+
 Observed Netlify responses supply HSTS, `X-Content-Type-Options: nosniff`, a `strict-origin-when-cross-origin` referrer policy, and a Permissions-Policy disabling camera, microphone and geolocation. GitHub Pages supplies HSTS. The HTML preserves the referrer policy and adds a CSP restricting script origins, embedded objects, base replacement and native form submission. Asset MIME types and HTML/JS/CSS contents were checked on the live Pages site.
 
 GitHub Pages cannot apply Netlify `_headers` or arbitrary response headers. Full parity for `nosniff`/Permissions-Policy, or adding CSP `frame-ancestors`, requires a configurable hosting service or proxy. Unsupported meta tags would not provide that protection. The third-party Puter SDK remains trusted page code; its authentication and API are separate services.

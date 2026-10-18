@@ -2,6 +2,18 @@
 
 See [the audit report](AUDIT.md) for findings, validation limits and prioritised improvements.
 
+## Advertising and privacy
+
+The public AdSense publisher ID is `ca-pub-8404673257565926`. The account-verification meta tag and root `ads.txt` identify this publisher. The supplied asynchronous, anonymous-cross-origin advertising script is stored in an inert template; `consent.js` inserts it once Google's certified consent manager confirms a usable state. No manual ad slot, sticky ad, pop-up ad or automatic request retry was added. Keep Auto ads disabled in AdSense to retain manual placement control; actual ad serving and approval are account-side decisions.
+
+In AdSense → Privacy & messaging → European regulations, publish the message for `aviosmaxxing.co.uk` with Consent, Do not consent and Manage options, and enable reopening privacy choices. The owner confirmed this message was published on 18 October 2026. The app bootstraps Google's Funding Choices service for this same publisher and listens to the TCF v2 API. Unknown jurisdiction, CMP errors, incomplete TC strings and missing Google vendor/device-storage consent keep the AdSense loader off. An explicit non-GDPR result may enable it; Google's SDK must still honour all other applicable regional and purpose signals. This minimum gate intentionally also blocks limited ads after a GDPR rejection.
+
+The page footer links to `privacy.html` and a keyboard-accessible Privacy choices dialog. Its Google review button calls `googlefc.showRevocationMessage()` when available. A separate browser-local advertising block overrides Google's permissions, syncs across tabs and does not change reward settings. Blocking or withdrawing consent after the advertising SDK started reloads the page to remove its running code. A failure to save the extra block is explained as visit-only. Google manages its own consent records and cookie deletion; the local block does not erase existing Google cookies.
+
+Google scripts are trusted third-party page code, just like the Puter SDK. The CSP allows the specific Google consent/advertising script hosts without enabling arbitrary inline scripts or eval. The privacy notice describes storage, Google, AI providers, hosting, retention and rights. Operator identity/contact details must be completed before this notice and advertising integration are released.
+
+Tests mock every Google request and cover consent/rejection, missing or stalled CMP, revocation, cross-tab blocking, ad-network failures, phone layouts and automated accessibility in all palettes. The cloud proxy denies Google's official documentation, consent endpoint and ad script; a real browser outside that proxy must still verify that the published message loads without CSP errors, Accept/Reject/Manage work, reopening works and no ad requests happen after rejection. These tests do not establish Google's account approval, actual ad fill or legal compliance.
+
 ## Using it on a phone
 
 The phone layout starts with a compact introduction, an expandable rewards summary, search mode and the question composer. Tap **My rewards** to edit cards/programmes, then **Done** to return to the conversation. Selected rewards stay visible in the summary and remain saved between visits. The banner clears when a conversation starts, and new replies scroll beneath the header. Answers use a larger reading size and the composer stays sticky while scrolling. The layout accounts for display safe areas, changing viewport height and landscape phones; the on-screen keyboard clears introductory content to make room for typing, and pinch zoom remains available.
@@ -65,7 +77,7 @@ Changing rewards refreshes an existing generated prompt and asks you to copy it 
 
 User messages use text rendering. AI text is escaped before a limited Markdown renderer adds formatting; links allow only HTTP/HTTPS and use `noopener noreferrer`. Generated prompts stay as textarea values. Preferences are validated on load and storage failures do not prevent using them during the current visit.
 
-The page includes a meta Content Security Policy that restricts scripts to this origin and `https://js.puter.com`, prohibits embedded objects, base URL replacement and native form submissions, plus a `strict-origin-when-cross-origin` referrer policy. Puter's third-party SDK remains trusted code with page access, loaded over HTTPS. A CSP change must be checked against the real SDK and authentication flow; test doubles alone cannot prove compatibility.
+The page includes a meta Content Security Policy that restricts scripts to this origin, `https://js.puter.com` and the specific Google advertising/consent hosts listed in the HTML. It prohibits embedded objects, base URL replacement and native form submissions, plus a `strict-origin-when-cross-origin` referrer policy. Third-party SDKs remain trusted code with page access, loaded over HTTPS. CSP changes must be checked against real services; test doubles alone cannot prove compatibility.
 
 GitHub Pages does not apply Netlify `_headers` files or provide arbitrary response-header configuration. Policies such as CSP `frame-ancestors`, `X-Frame-Options`, and other response-only headers require a host or fronting proxy that supports them; adding them as HTML meta tags would not work. The import has no original Netlify header configuration, so no claim is made that those original policies have been reproduced. Inspect actual production responses when comparing hosting policies.
 

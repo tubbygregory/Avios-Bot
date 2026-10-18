@@ -2,7 +2,7 @@
 <html lang="en-GB">
 <head>
   <meta charset="utf-8" />
-  <meta http-equiv="Content-Security-Policy" content="base-uri 'none'; object-src 'none'; form-action 'none'; script-src 'self' https://js.puter.com" />
+  <meta http-equiv="Content-Security-Policy" content="base-uri 'none'; object-src 'none'; form-action 'none'; script-src 'self' https://js.puter.com https://fundingchoicesmessages.google.com https://pagead2.googlesyndication.com https://tpc.googlesyndication.com https://www.googletagservices.com https://www.gstatic.com" />
   <meta name="google-adsense-account" content="ca-pub-8404673257565926" />
   <meta name="referrer" content="strict-origin-when-cross-origin" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
@@ -227,7 +227,23 @@
     </section>
   </main>
 
+  <nav class="privacy-links" aria-label="Privacy"><a href="./privacy.html">Privacy notice</a><button type="button" data-privacy-choices aria-haspopup="dialog">Privacy choices</button></nav>
+
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <dialog id="privacy-dialog" aria-labelledby="privacy-title">
+    <div class="privacy-heading"><h2 id="privacy-title">Your privacy choices</h2><button id="close-privacy" class="tool-button" type="button">Close</button></div>
+    <p>Google manages advertising consent. You can accept, reject or manage its choices without changing your rewards or using an AI allowance.</p>
+    <p id="privacy-status" role="status">Waiting for Google’s consent service. Advertising stays off while consent is unresolved.</p>
+    <button id="review-google-consent" class="tool-button" type="button">Review Google privacy choices</button>
+    <label class="privacy-block"><input id="block-advertising" type="checkbox"><span>Block advertising on this browser</span></label>
+    <p id="privacy-storage" class="tool-copy">This additional block is saved on this browser. Turning it on reloads the page if advertising has already started, clearing any unsaved conversation.</p>
+    <p><a href="./privacy.html">Read the privacy notice</a></p>
+  </dialog>
+
+  <!-- Kept inert until Google's certified CMP reports an allowed state. The
+       account meta tag above supports verification before visitors consent. -->
+  <template id="adsense-code"><script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-8404673257565926" crossorigin="anonymous"></script></template>
 
   <dialog id="tools-dialog" aria-labelledby="tools-title">
     <div class="tools-heading"><h2 id="tools-title">Make your next spend count</h2><button id="close-tools" class="tool-button" type="button">Close</button></div>
@@ -293,5 +309,6 @@
   <script id="puter-sdk" src="https://js.puter.com/v2/" async></script>
   <script src="./app.js" defer></script>
   <script src="./features.js" defer></script>
+  <script src="./consent.js" defer></script>
 </body>
 </html>
