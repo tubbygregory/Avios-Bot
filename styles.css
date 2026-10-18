@@ -840,7 +840,7 @@ input::placeholder { color: var(--muted); opacity: 1; }
 #tools-dialog {
   width: min(760px, calc(100% - 24px));
   max-width: calc(100% - 24px);
-  max-height: calc(var(--app-viewport-height, 100dvh) - 24px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  max-height: calc(min(var(--app-viewport-height, 100dvh), 100dvh) - 24px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
   position: fixed;
   top: calc(var(--app-viewport-top, 0px) + 12px + env(safe-area-inset-top, 0px));
   bottom: auto;
