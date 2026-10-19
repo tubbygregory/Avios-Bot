@@ -180,7 +180,7 @@
             <div id="own-ai-panel" class="own-ai-panel" hidden>
               <div class="own-ai-copy">
                 <strong>Use your own AI account</strong>
-                <span>We’ll copy a prompt personalised to your rewards and open your assistant. Paste it there to get started.</span>
+                <span id="own-ai-instructions">We’ll copy a prompt personalised to your rewards and open your assistant. Paste it there to get started.</span>
               </div>
               <div class="provider-options" role="group" aria-label="Choose your AI assistant">
                 <button type="button" class="provider-button active" data-provider="chatgpt" aria-pressed="true">ChatGPT</button>
@@ -191,6 +191,7 @@
               <section id="prompt-recovery" class="prompt-recovery" aria-labelledby="prompt-title" hidden>
                 <h3 id="prompt-title">Your personalised prompt</h3>
                 <p id="handoff-status" role="status"></p>
+                <a id="open-provider-app" target="_self" rel="noopener noreferrer" hidden>Open app</a>
                 <label for="generated-prompt">Copy this prompt and paste it into your assistant</label>
                 <textarea id="generated-prompt" readonly rows="6" spellcheck="false"></textarea>
                 <div class="prompt-actions">

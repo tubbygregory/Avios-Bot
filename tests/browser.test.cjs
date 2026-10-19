@@ -66,8 +66,8 @@ window.__tcfapi = (command, version, callback) => {
 window.googlefc.showRevocationMessage = () => { window.__privacyReviews++; };
 window.googlefc.callbackQueue.forEach(callback => callback.CONSENT_API_READY?.());`;
 
-async function open(t, { storage, blockedStorage, sdkMode = 'mock', cmpMode = 'mock', consent, clock = false, viewport, hasTouch = false, colorScheme, contrast, forcedColors } = {}) {
-  const context = await browser.newContext({ viewport, hasTouch, colorScheme, contrast, forcedColors, serviceWorkers: 'block' });
+async function open(t, { storage, blockedStorage, sdkMode = 'mock', cmpMode = 'mock', consent, clock = false, viewport, hasTouch = false, colorScheme, contrast, forcedColors, userAgent } = {}) {
+  const context = await browser.newContext({ viewport, hasTouch, colorScheme, contrast, forcedColors, userAgent, serviceWorkers: 'block' });
   t.after(() => context.close());
   // No provider, SDK or AI traffic escapes this deterministic test suite.
   await context.route('https://**/*', route => {
@@ -1176,4 +1176,107 @@ test('collapsing before the ad becomes visible prevents its first request until 
   await p.locator('#toggle-display-ad').click();await p.locator('#display-ad-content').scrollIntoViewIfNeeded();
   await p.waitForFunction(()=>window.__adRequests===1);
   assert.equal(await p.locator('#toggle-display-ad').getAttribute('aria-expanded'),'true');
+});
+
+const IPHONE_UA='Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1';
+const ANDROID_UA='Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36';
+
+test('iPhone prepares a copied prompt before a direct app tap, without opening a browser sheet', async t => {
+  const p=await open(t,{userAgent:IPHONE_UA,viewport:{width:390,height:844},hasTouch:true});
+  await p.locator('[data-mode="own"]').click();await choose(p,'#ba-premium');await p.locator('#done-rewards').click();await fakePopup(p);
+  for(const [provider,url] of [['chatgpt','chatgpt://'],['claude','https://claude.ai/'],['gemini','https://gemini.google.com/app/download/mobile']]) {
+    await p.locator(`[data-provider="${provider}"]`).click();await ask(p,'A private purchase');await idle(p);
+    assert.deepEqual(await p.evaluate(()=>window.__opened),[],'no automatic browser popup');
+    assert.match(await p.locator('#handoff-status').textContent(),/Prompt copied.*Tap.*app/);
+    assert.equal(await p.locator('#toast').isVisible(),false,'launch control is not covered by a mobile toast');
+    assert.ok((await p.evaluate(()=>window.__clipboard.at(-1))).includes('BA Amex Premium Plus'));
+    assert.equal(await p.locator('#chat-input').inputValue(),'');
+    const app=p.locator('#open-provider-app');assert.equal(await app.isVisible(),true);
+    assert.equal(await app.getAttribute('href'),url);assert.equal(await app.getAttribute('target'),'_self');
+    assert.ok(!url.includes('purchase'),'question is never put in a link');
+    await p.evaluate(()=>document.getElementById('open-provider-app').addEventListener('click',e=>{e.preventDefault();window.__appTap={trusted:e.isTrusted,url:e.currentTarget.getAttribute('href')};},{once:true}));
+    await app.click();assert.equal(await p.evaluate(()=>window.__appTap.trusted),true,'a genuine link tap is available to the OS');
+    assert.match(await p.locator('#open-provider').textContent(),/in browser/);
+    assert.equal(await p.locator('#open-provider').getAttribute('target'),'_blank');
+  }
+});
+
+test('Android targets the selected installed AI package and supplies a clean HTTPS browser fallback', async t => {
+  const p=await open(t,{userAgent:ANDROID_UA,viewport:{width:390,height:844},hasTouch:true});
+  await p.locator('[data-mode="own"]').click();await fakePopup(p);
+  for(const [provider,pkg,fallback] of [['chatgpt','com.openai.chatgpt','https://chatgpt.com/'],['claude','com.anthropic.claude','https://claude.ai/'],['gemini','com.google.android.apps.bard','https://gemini.google.com/']]) {
+    await p.locator(`[data-provider="${provider}"]`).click();await ask(p,'A private hotel');await idle(p);
+    const link=await p.locator('#open-provider-app').getAttribute('href');
+    assert.match(link,/^intent:\/\//);assert.ok(link.includes('package='+pkg+';'));
+    assert.ok(link.includes('S.browser_fallback_url='+encodeURIComponent(fallback)+';'));
+    assert.ok(!link.includes('hotel'));assert.deepEqual(await p.evaluate(()=>window.__opened),[]);
+    if(provider==='gemini') assert.ok(link.startsWith('intent://gemini.google.com/app/download/mobile#Intent;'));
+  }
+  const popupPromise=p.waitForEvent('popup');await p.locator('#open-provider').click();
+  const popup=await popupPromise;await popup.waitForURL('https://gemini.google.com/');
+  assert.equal(await popup.evaluate(()=>window.opener),null);await popup.close();
+});
+
+test('mobile clipboard failures retain the editable question and manual copy/app/browser recovery', async t => {
+  const p=await open(t,{userAgent:IPHONE_UA,viewport:{width:320,height:568},hasTouch:true});
+  await p.locator('[data-mode="own"]').click();await fakePopup(p);
+  await p.evaluate(()=>window.__clipboardDenied=true);await ask(p,'A watch <script>unsafe</script>');await idle(p);
+  assert.match(await p.locator('#handoff-status').textContent(),/Select and copy.*Open ChatGPT app/s);
+  assert.equal(await p.locator('#chat-input').inputValue(),'A watch <script>unsafe</script>');
+  assert.equal(await p.locator('#open-provider-app').isVisible(),true);
+  assert.equal(await p.locator('#prompt-recovery script').count(),0);
+  assert.ok((await p.locator('#generated-prompt').inputValue()).includes('<script>unsafe</script>'));
+  assert.deepEqual(await p.evaluate(()=>window.__opened),[]);
+  await p.evaluate(()=>window.__clipboardDenied=false);await p.locator('#copy-prompt').click();await idle(p);
+  assert.match(await p.locator('#handoff-status').textContent(),/Prompt copied/);
+  const popupPromise=p.waitForEvent('popup');await p.locator('#open-provider').click();
+  const popup=await popupPromise;await popup.waitForURL('https://chatgpt.com/');await popup.close();
+});
+
+test('mobile app links wait for copying, cancel cleanly and follow provider changes without opening anything', async t => {
+  const p=await open(t,{userAgent:IPHONE_UA,viewport:{width:390,height:844},hasTouch:true});
+  await p.locator('[data-mode="own"]').click();await fakePopup(p);await p.evaluate(()=>window.__clipboardPending=true);
+  await ask(p,'Wait for clipboard');await p.waitForFunction(()=>Boolean(window.__resolveClipboard));
+  assert.equal(await p.locator('#open-provider-app').isVisible(),false,'cannot switch apps before copying completes');
+  await p.locator('#clear-chat').click();await p.evaluate(()=>window.__resolveClipboard());
+  assert.equal(await p.locator('#prompt-recovery').isVisible(),false);
+  assert.equal(await p.locator('#open-provider-app').isVisible(),false);
+  await p.evaluate(()=>window.__clipboardPending=false);await ask(p,'A train journey');await idle(p);
+  await p.locator('[data-provider="gemini"]').click();
+  assert.equal(await p.locator('#open-provider-app').getAttribute('href'),'https://gemini.google.com/app/download/mobile');
+  assert.match(await p.locator('#open-provider-app').textContent(),/Gemini app/);
+  assert.deepEqual(await p.evaluate(()=>window.__opened),[]);
+  await p.reload();assert.equal(await p.locator('[data-provider="gemini"]').getAttribute('aria-pressed'),'true');
+});
+
+test('mobile handoff fits iPhone widths and passes accessibility checks in all palettes', async t => {
+  const p=await open(t,{userAgent:IPHONE_UA,viewport:{width:320,height:568},hasTouch:true});
+  await p.locator('[data-mode="own"]').click();await fakePopup(p);await ask(p,'A dinner');await idle(p);
+  const launch=await p.locator('#open-provider-app').boundingBox();
+  const composer=await p.locator('.composer-dock').boundingBox();
+  assert.ok(launch.y>=60&&launch.y+launch.height<=composer.y,'app launch is visible above the phone composer');
+  await p.evaluate(axe.source);
+  for(const mode of ['light','dark','contrast']) {
+    await appearance(p,mode);await p.locator('#close-tools').click();
+    const result=await p.evaluate(()=>axe.run(document,{runOnly:{type:'tag',values:['wcag2a','wcag2aa','wcag21aa']}}));
+    assert.deepEqual(result.violations.map(v=>({id:v.id,targets:v.nodes.map(n=>n.target)})),[],mode);
+    for(const width of [320,390,844]) {
+      await p.setViewportSize({width,height:568});
+      assert.ok(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+      const app=await p.locator('#open-provider-app').boundingBox();
+      assert.ok(app.width>=43.99&&app.height>=43.99,`${mode} ${width}px touch target: ${app.width}×${app.height}`);
+    }
+  }
+});
+
+test('iPad desktop-mode identification offers app handoff while a narrow desktop keeps browser popups', async t => {
+  const ipad=await open(t,{hasTouch:true,viewport:{width:1024,height:768}});
+  await ipad.evaluate(()=>{Object.defineProperty(navigator,'platform',{configurable:true,value:'MacIntel'});Object.defineProperty(navigator,'maxTouchPoints',{configurable:true,value:5});});
+  await ipad.locator('[data-mode="own"]').click();await fakePopup(ipad);await ask(ipad,'An iPad purchase');await idle(ipad);
+  assert.equal(await ipad.locator('#open-provider-app').getAttribute('href'),'chatgpt://');
+  assert.equal(await ipad.locator('#open-provider-app').isVisible(),true);assert.deepEqual(await ipad.evaluate(()=>window.__opened),[]);
+  const desktop=await open(t,{viewport:{width:390,height:844}});await desktop.locator('[data-mode="own"]').click();await fakePopup(desktop);
+  await ask(desktop,'Desktop window');await idle(desktop);
+  assert.equal(await desktop.locator('#open-provider-app').isVisible(),false);
+  assert.deepEqual(await desktop.evaluate(()=>window.__opened),['https://chatgpt.com/']);
 });

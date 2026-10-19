@@ -730,6 +730,8 @@ input::placeholder { color: var(--muted); opacity: 1; }
 .prompt-recovery textarea:focus-visible { outline: 3px solid var(--avios-blue); outline-offset: 2px; }
 .prompt-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 8px; }
 .prompt-actions a { color: var(--avios-blue); font-size: 12px; padding: 10px 0; }
+.prompt-recovery { scroll-margin-top: 80px; }
+.prompt-recovery #open-provider-app { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; margin-bottom: 14px; padding: 10px 14px; border: 1px solid var(--avios-blue); border-radius: 10px; background: var(--avios-blue); color: var(--on-accent); font-size: 14px; font-weight: 700; text-decoration: none; }
 .clipboard-buffer { position: fixed; top: 0; left: -10000px; }
 
 @media (prefers-reduced-motion: reduce) {

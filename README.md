@@ -28,6 +28,14 @@ To launch it from your home screen, use Safari’s **Share → Add to Home Scree
 
 Imported from https://aviosmaxxing.netlify.app/ on 16 October 2026.
 
+## Opening your AI app on a phone
+
+In Use your AI, phones first prepare and copy the personalised prompt, then reveal a direct Open app link. Tap that link, paste the prompt and send it yourself. This second, genuine link tap allows OS app handling after clipboard work has finished; mobile no longer pre-opens a blank browser tab. Copy failures retain the original question and selectable prompt. The app link waits until copying completes, and New chat cancels the pending handoff. Desktop keeps the existing isolated browser-popup flow; a narrow desktop window is still treated as desktop.
+
+On iPhone/iPad, ChatGPT uses `chatgpt://`, Claude uses its HTTPS domain link, and Gemini uses `https://gemini.google.com/app/download/mobile`. Google's published iOS association file explicitly includes that path; its Android association file identifies `com.google.android.apps.bard`. Android uses package-targeted HTTPS intents for the three providers with browser fallback URLs. An additional Open in browser link is always available. No question, generated prompt or reward selection is encoded in any app/browser URL, and no prompt is submitted automatically.
+
+Installed-app detection is unavailable to this static site. OS/browser preferences, installed versions and provider support determine whether a native app opens. Claude's iOS HTTPS handoff is best-effort; its association endpoint and OpenAI's endpoint were inaccessible from this environment. The Gemini association was checked directly. Native app launches and returning from them still require physical-device validation; browser tests verify links, trusted taps, clipboard ordering, fallback and mobile accessibility, not that a native app was installed or opened. There is no timed automatic redirect that could override a successful app switch.
+
 ## Planning, comparisons and saved items
 
 Open **Tools** in the header. **Plan a search** has purchase, hotel, flight and dining forms. They prepare an editable question using your details; no AI request is made until you send it. Dates are checked, and switching forms keeps their drafts for the current visit. Both AI modes continue to use your current reward selections.

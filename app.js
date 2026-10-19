@@ -23,6 +23,7 @@ const generatedPrompt = document.getElementById('generated-prompt');
 const handoffStatus = document.getElementById('handoff-status');
 const copyPromptButton = document.getElementById('copy-prompt');
 const openProvider = document.getElementById('open-provider');
+const openProviderApp = document.getElementById('open-provider-app');
 const sdkStatus = document.getElementById('sdk-status');
 const rewardDetails = document.getElementById('reward-details');
 const profileOverview = document.getElementById('profile-overview');
@@ -37,10 +38,39 @@ let lastExternalRequest = '';
 const AI_MODE_KEY = 'aviosmaxxing-ai-mode';
 const AI_PROVIDER_KEY = 'aviosmaxxing-ai-provider';
 const PROVIDERS = {
-  chatgpt: { label: 'ChatGPT', url: 'https://chatgpt.com/' },
-  claude: { label: 'Claude', url: 'https://claude.ai/' },
-  gemini: { label: 'Gemini', url: 'https://gemini.google.com/' }
+  chatgpt: { label: 'ChatGPT', url: 'https://chatgpt.com/', iosUrl: 'chatgpt://', androidPackage: 'com.openai.chatgpt' },
+  claude: { label: 'Claude', url: 'https://claude.ai/', iosUrl: 'https://claude.ai/', androidPackage: 'com.anthropic.claude' },
+  gemini: { label: 'Gemini', url: 'https://gemini.google.com/', iosUrl: 'https://gemini.google.com/app/download/mobile', androidUrl: 'https://gemini.google.com/app/download/mobile', androidPackage: 'com.google.android.apps.bard' }
 };
+
+function mobilePlatform() {
+  const ua = navigator.userAgent;
+  if (/Android/i.test(ua)) return 'android';
+  if (/iPhone|iPad|iPod/i.test(ua + ' ' + navigator.platform) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) return 'ios';
+  return '';
+}
+
+function syncProviderLinks() {
+  const provider = PROVIDERS[currentProvider];
+  const platform = mobilePlatform();
+  openProvider.href = provider.url;
+  openProvider.textContent = platform ? `Open ${provider.label} in browser` : `Open ${provider.label}`;
+  openProviderApp.hidden = !platform || busy || promptRecovery.hidden;
+  openProviderApp.textContent = `Open ${provider.label} app`;
+  if (platform === 'android') {
+    // Android Chrome intents target a named app and provide a browser fallback.
+    // Only fixed provider URLs/packages are used; prompts never enter a link.
+    const url = new URL(provider.androidUrl || provider.url);
+    openProviderApp.href = `intent://${url.host}${url.pathname}#Intent;scheme=https;package=${provider.androidPackage};S.browser_fallback_url=${encodeURIComponent(provider.url)};end`;
+  } else {
+    openProviderApp.href = provider.iosUrl;
+  }
+  document.getElementById('own-ai-instructions').textContent = platform
+    ? 'We’ll copy a prompt personalised to your rewards. Tap Open app, then paste and send. If it doesn’t open, use the browser link.'
+    : 'We’ll copy a prompt personalised to your rewards and open your assistant. Paste it there to get started.';
+  if (!busy) sendButton.setAttribute('aria-label', currentMode === 'own' && platform ? 'Copy prompt' : 'Send');
+}
 let currentMode = 'puter';
 let currentProvider = 'chatgpt';
 let toastTimer = null;
@@ -136,6 +166,7 @@ function setMode(mode, persist = true) {
   input.placeholder = currentMode === 'own'
     ? `Ask ${PROVIDERS[currentProvider].label}…`
     : 'What are you looking for?';
+  syncProviderLinks();
   if (persist) {
     try { localStorage.setItem(AI_MODE_KEY, currentMode); } catch (_) {}
   }
@@ -153,10 +184,9 @@ function setProvider(provider, persist = true) {
     input.placeholder = `Ask ${PROVIDERS[currentProvider].label}…`;
   }
   if (!promptRecovery.hidden) {
-    openProvider.href = PROVIDERS[currentProvider].url;
-    openProvider.textContent = `Open ${PROVIDERS[currentProvider].label}`;
     handoffStatus.textContent = `Your prompt is ready below. Copy it, then open ${PROVIDERS[currentProvider].label}.`;
   }
+  syncProviderLinks();
   if (persist) {
     try { localStorage.setItem(AI_PROVIDER_KEY, currentProvider); } catch (_) {}
   }
@@ -276,37 +306,47 @@ async function sendToExternalAi(message) {
   activeOperation = operation;
   setBusy(true);
   const provider = PROVIDERS[currentProvider];
+  const mobile = Boolean(mobilePlatform());
+  if (mobile) {
+    window.clearTimeout(toastTimer);
+    window.clearTimeout(toastHideTimer);
+    toast.hidden = true;
+    toast.classList.remove('show');
+  }
   const prompt = buildExternalAiPrompt(cleaned);
   lastExternalRequest = cleaned;
   generatedPrompt.value = prompt;
-  openProvider.href = provider.url;
-  openProvider.textContent = `Open ${provider.label}`;
   promptRecovery.hidden = false;
+  syncProviderLinks();
   window.AviosFeatures?.offerExternalSave();
   handoffStatus.textContent = 'Preparing your prompt…';
 
   let tab = null;
   try {
-    // Open and navigate during the gesture; clipboard permissions must not delay it.
-    // The destination comes only from the fixed provider list above.
-    try {
-      tab = window.open('about:blank', '_blank');
-      if (tab) {
-        tab.opener = null;
-        tab.location.replace(provider.url);
+    // Desktop popups must open during the gesture. On a phone, finish copying
+    // first, then use a real link tap so the OS can launch the installed app.
+    if (!mobile) {
+      try {
+        tab = window.open('about:blank', '_blank');
+        if (tab) {
+          tab.opener = null;
+          tab.location.replace(provider.url);
+        }
+      } catch (_) {
+        try { tab?.close(); } catch (_) {}
+        tab = null;
       }
-    } catch (_) {
-      try { tab?.close(); } catch (_) {}
-      tab = null;
     }
     const copied = await copyText(prompt, operation.signal);
     if (activeOperation !== operation) return;
     const copyStatus = copied ? 'Prompt copied.' : 'Automatic copying was unavailable. Select and copy the prompt below.';
-    const tabStatus = tab ? `Paste it into ${provider.label} and send it there.` : `The new tab was blocked. Use “Open ${provider.label}” below.`;
+    const tabStatus = mobile
+      ? `Tap “Open ${provider.label} app”, then paste and send. If the app does not open, use “Open ${provider.label} in browser”.`
+      : tab ? `Paste it into ${provider.label} and send it there.` : `The new tab was blocked. Use “Open ${provider.label}” below.`;
     handoffStatus.textContent = `${copyStatus} ${tabStatus}`;
-    showToast(handoffStatus.textContent, copied && tab ? 'default' : 'error');
+    if (!mobile) showToast(handoffStatus.textContent, copied && tab ? 'default' : 'error');
     // Keep the original question for retry when either step failed.
-    if (copied && tab) {
+    if (copied && (mobile || tab)) {
       input.value = '';
       autoGrow();
     }
@@ -318,6 +358,7 @@ async function sendToExternalAi(message) {
     if (activeOperation === operation) {
       activeOperation = null;
       setBusy(false);
+      if (mobile && !promptRecovery.hidden) promptRecovery.scrollIntoView({ block: 'start' });
     }
   }
 }
@@ -751,6 +792,7 @@ function setBusy(value) {
     ...suggestions.querySelectorAll('button')].forEach(control => { control.disabled = value; });
   form.setAttribute('aria-busy', String(value));
   sendButton.setAttribute('aria-label', value ? 'Working' : 'Send');
+  syncProviderLinks();
 }
 
 function getResponseText(response) {
@@ -994,7 +1036,9 @@ copyPromptButton.addEventListener('click', async () => {
   try {
     const copied = await copyText(generatedPrompt.value, operation.signal);
     if (activeOperation !== operation) return;
-    handoffStatus.textContent = copied ? 'Prompt copied. Paste it into your assistant and send it there.'
+    handoffStatus.textContent = copied ? (mobilePlatform()
+      ? `Prompt copied. Tap “Open ${PROVIDERS[currentProvider].label} app”, then paste and send.`
+      : 'Prompt copied. Paste it into your assistant and send it there.')
       : 'Select the prompt above and copy it manually, then paste it into your assistant.';
     if (!copied) {
       generatedPrompt.focus();
