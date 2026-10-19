@@ -1135,3 +1135,45 @@ test('a configured manual ad fits phone and desktop widths, respects every palet
     assert.equal(await p.evaluate(()=>window.__adRequests),1);
   }
 });
+
+test('the ad collapses with keyboard and touch controls and reopening never refreshes it', async t => {
+  const p=await open(t,{viewport:{width:390,height:844},hasTouch:true});
+  await configureTestAd(p);await acceptTestAds(p);
+  await p.locator('#display-ad-content').scrollIntoViewIfNeeded();await p.waitForFunction(()=>window.__adRequests===1);
+  const toggle=p.locator('#toggle-display-ad');
+  const expanded=(await p.locator('#display-ad').boundingBox()).height;
+  await toggle.focus();await p.keyboard.press('Enter');
+  assert.equal(await toggle.getAttribute('aria-expanded'),'false');assert.equal(await toggle.textContent(),'Show ad');
+  assert.equal(await p.locator('#display-ad-content').isVisible(),false);
+  assert.equal(await p.locator('#display-ad .display-ad-label').isVisible(),true);
+  assert.ok((await p.locator('#display-ad').boundingBox()).height<expanded);
+  await p.keyboard.press('Space');
+  assert.equal(await toggle.getAttribute('aria-expanded'),'true');assert.equal(await p.locator('#display-ad-content').isVisible(),true);
+  assert.equal(await p.locator('#display-ad-content ins').count(),1);
+  await toggle.click();await toggle.click();
+  assert.equal(await p.evaluate(()=>window.__adRequests),1,'the existing ad is reused');
+  for(const mode of ['light','dark','contrast']) {
+    await appearance(p,mode);await p.locator('#close-tools').click();await toggle.click();
+    await p.evaluate(axe.source);
+    const result=await p.evaluate(()=>axe.run(document,{runOnly:{type:'tag',values:['wcag2a','wcag2aa','wcag21aa']}}));
+    assert.deepEqual(result.violations.map(v=>v.id),[],mode+' collapsed ad');
+    const box=await toggle.boundingBox();assert.ok(box.width>=44&&box.height>=44);
+    assert.ok(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+    await toggle.click();
+  }
+});
+
+test('collapsing before the ad becomes visible prevents its first request until reopened', async t => {
+  const p=await open(t,{viewport:{width:390,height:844}});await configureTestAd(p);await acceptTestAds(p);
+  assert.equal(await p.evaluate(()=>window.__adRequests||0),0);
+  // Dispatch the accessible control without scrolling the below-fold ad into
+  // view, then verify scrolling cannot request a hidden creative.
+  await p.locator('#toggle-display-ad').evaluate(button=>button.click());
+  await p.locator('#display-ad').scrollIntoViewIfNeeded();
+  assert.equal(await p.locator('#display-ad-content').isVisible(),false);
+  await p.setViewportSize({width:320,height:568});
+  assert.equal(await p.evaluate(()=>window.__adRequests||0),0);
+  await p.locator('#toggle-display-ad').click();await p.locator('#display-ad-content').scrollIntoViewIfNeeded();
+  await p.waitForFunction(()=>window.__adRequests===1);
+  assert.equal(await p.locator('#toggle-display-ad').getAttribute('aria-expanded'),'true');
+});

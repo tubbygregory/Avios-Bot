@@ -28,13 +28,15 @@
     // Publisher IDs and ad-unit IDs are different. Never request an invented
     // slot or show an empty placeholder while the owner creates the real unit.
     if (!placement || !/^\d{1,20}$/.test(slot) || /^0+$/.test(slot)) return;
+    const content = document.getElementById('display-ad-content');
+    const toggle = document.getElementById('toggle-display-ad');
     placement.hidden = false;
     placement.dataset.state = 'waiting';
     let requested = false;
     let visibility;
     function request() {
-      if (requested || blocked || !allowed || document.hidden) return;
-      const bounds = placement.getBoundingClientRect();
+      if (requested || blocked || !allowed || document.hidden || content.hidden) return;
+      const bounds = content.getBoundingClientRect();
       if (bounds.top >= window.innerHeight || bounds.bottom <= 0) return;
       requested = true;
       visibility?.disconnect();
@@ -42,7 +44,7 @@
       window.removeEventListener('resize', request);
       document.removeEventListener('visibilitychange', request);
       const ad = supplied.cloneNode(true);
-      document.getElementById('display-ad-content').append(ad);
+      content.append(ad);
       placement.dataset.state = 'requested';
       const fill = new MutationObserver(() => {
         if (ad.dataset.adStatus === 'unfilled') {
@@ -67,12 +69,20 @@
       visibility = new IntersectionObserver(entries => {
         if (entries.some(entry => entry.isIntersecting)) request();
       });
-      visibility.observe(placement);
+      visibility.observe(content);
     } else {
       window.addEventListener('scroll', request, { passive: true });
     }
     window.addEventListener('resize', request);
     document.addEventListener('visibilitychange', request);
+    toggle.addEventListener('click', () => {
+      content.hidden = !content.hidden;
+      toggle.setAttribute('aria-expanded', String(!content.hidden));
+      toggle.textContent = content.hidden ? 'Show ad' : 'Hide ad';
+      // Reopening retains the existing ad. If it has not loaded yet, the same
+      // consent and visibility checks still apply before its first request.
+      if (!content.hidden) request();
+    });
     request();
   }
   function apply() {

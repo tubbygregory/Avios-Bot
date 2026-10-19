@@ -228,7 +228,10 @@
   </main>
 
   <aside id="display-ad" class="display-ad" aria-label="Advertisement" hidden>
-    <p class="display-ad-label">Advertisement</p>
+    <div class="display-ad-heading">
+      <p class="display-ad-label">Advertisement</p>
+      <button id="toggle-display-ad" class="display-ad-toggle" type="button" aria-expanded="true" aria-controls="display-ad-content">Hide ad</button>
+    </div>
     <div id="display-ad-content" class="display-ad-content"></div>
     <!-- The publisher-supplied responsive unit. Keep it inside this container
          and horizontal to preserve the phone layout and clear search controls. -->

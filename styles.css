@@ -135,7 +135,9 @@ details[open] > .profile-summary .profile-edit svg { transform: rotate(180deg); 
 .privacy-links a, .privacy-links button { display: inline-flex; align-items: center; min-height: 44px; padding: 8px 0; color: var(--avios-blue); font-size: 12px; line-height: 1.4; text-decoration: underline; }
 .privacy-links button { border: 0; background: transparent; }
 .display-ad { width: min(920px, 100%); margin: 48px auto 24px; padding-inline: env(safe-area-inset-left, 0px) env(safe-area-inset-right, 0px); text-align: center; }
-.display-ad-label { margin: 0 0 10px; padding-inline: 16px; color: var(--secondary); font-size: 12px; line-height: 1.5; }
+.display-ad-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: min(728px, 100%); margin: 0 auto 16px; padding-inline: 12px; }
+.display-ad-label { margin: 0; color: var(--secondary); font-size: 12px; line-height: 1.5; }
+.display-ad-toggle { min-height: 44px; min-width: 44px; padding: 10px 12px; border: 1px solid var(--control-border); border-radius: 10px; background: var(--white); color: var(--avios-blue); font-size: 13px; }
 .display-ad-content { width: min(728px, 100%); min-height: 100px; margin: auto; }
 .display-ad-content .adsbygoogle { display: block; width: 100%; }
 .privacy-document { width: min(760px, calc(100% - 32px)); margin: 30px auto; padding-bottom: env(safe-area-inset-bottom, 0px); font-size: 16px; line-height: 1.7; overflow-wrap: anywhere; }
