@@ -145,7 +145,7 @@
   function onConsent(data, success) {
     if (!success || !data || data.cmpStatus !== 'loaded') {
       allowed = false;
-      if (started) apply();
+      if (started || blocked) apply();
       else report('unavailable', 'Google’s consent service has not confirmed your choices. Advertising stays off.');
       return;
     }
@@ -153,7 +153,9 @@
     // timeout. Opening it does not change previously confirmed permissions.
     if (data.eventStatus === 'cmpuishown') {
       clearTimeout(readyTimer);
-      report(started ? 'enabled' : 'waiting', 'Google’s privacy message is open. Accept, reject or manage your choices there.');
+      report(blocked ? 'blocked' : started ? 'enabled' : 'waiting', blocked
+        ? 'Advertising is blocked on this browser. You can still review Google’s privacy message.'
+        : 'Google’s privacy message is open. Accept, reject or manage your choices there.');
       return;
     }
     if (!['tcloaded', 'useractioncomplete'].includes(data.eventStatus)) return;
@@ -203,9 +205,6 @@
       status.textContent = 'Google’s privacy choices could not open. You can block advertising on this browser instead.';
     }
   });
-  window.addEventListener('focus', listen);
-  window.addEventListener('pageshow', listen);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) listen(); });
   block.addEventListener('change', () => {
     blocked = block.checked;
     if (!blocked && window.location.hash === '#advertising-off') {

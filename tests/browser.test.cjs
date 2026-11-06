@@ -1330,6 +1330,10 @@ test('an open consent message stays pending instead of becoming a false service 
   assert.match(await p.locator('#privacy-status').textContent(),/privacy message is open/);
   assert.equal(await p.locator('#adsense-sdk').count(),0);
   await p.evaluate(data=>window.__emitConsent(data),acceptedConsent);await p.waitForFunction(()=>window.__adLoads===1);
+  const blocked=await open(t,{consent:pending,clock:true,storage:{[AD_BLOCK_KEY]:'1'}});
+  await blocked.clock.fastForward(12000);
+  assert.equal(await blocked.locator('html').getAttribute('data-advertising'),'blocked');
+  assert.equal(await blocked.locator('#adsense-sdk').count(),0);
 });
 
 test('privacy status distinguishes a Google no-fill result from an ad waiting below the app', async t => {
@@ -1345,7 +1349,7 @@ test('privacy status distinguishes a Google no-fill result from an ad waiting be
   assert.equal(await p.evaluate(()=>window.__adRequests),1);
 });
 
-test('returning to the page resubscribes after API replacement and ignores stale callbacks', async t => {
+test('Google readiness resubscribes after API replacement and ignores stale callbacks', async t => {
   const p=await open(t);await p.waitForFunction(()=>window.__consentListeners?.length===1);
   await p.locator('#chat-input').fill('Keep this draft');
   await p.evaluate(data=>{
@@ -1355,14 +1359,13 @@ test('returning to the page resubscribes after API replacement and ignores stale
       if(command!=='addEventListener'||version!==2) throw new Error('Unexpected consent command');
       window.__replacementSubscriptions++;callback(data,true);
     };
-    window.dispatchEvent(new Event('focus'));
+    window.googlefc.callbackQueue.forEach(callback=>callback.CONSENT_API_READY?.());
   },acceptedConsent);
   await p.waitForFunction(()=>window.__adLoads===1);
   const navigations=[];p.on('framenavigated',frame=>{if(frame===p.mainFrame())navigations.push(frame.url());});
   await p.evaluate(()=>{
     window.__staleConsentCallback(null,false);
-    window.dispatchEvent(new Event('pageshow'));
-    document.dispatchEvent(new Event('visibilitychange'));
+    window.googlefc.callbackQueue.forEach(callback=>callback.CONSENT_API_READY?.());
   });
   await p.waitForTimeout(50);
   assert.deepEqual(navigations,[],'obsolete consent callbacks cannot reload the current page');
