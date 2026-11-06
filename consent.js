@@ -8,7 +8,8 @@
   const block = document.getElementById('block-advertising');
   const storageStatus = document.getElementById('privacy-storage');
   const template = document.getElementById('adsense-code');
-  let blocked = window.location.hash === '#advertising-off', allowed = false, started = false, listening = false;
+  let blocked = window.location.hash === '#advertising-off', allowed = false, started = false;
+  let subscription = null;
   let readyTimer;
   try { blocked = blocked || localStorage.getItem(blockKey) === '1'; }
   catch (_) {
@@ -21,13 +22,19 @@
     document.documentElement.dataset.advertising = state;
     status.textContent = message;
   }
+  function reportDelivery(message) {
+    if (allowed && !blocked) report('enabled', message);
+  }
   function prepareDisplayAd() {
     const placement = document.getElementById('display-ad');
     const supplied = document.getElementById('display-ad-code')?.content.querySelector('ins');
     const slot = supplied?.dataset.adSlot || '';
     // Publisher IDs and ad-unit IDs are different. Never request an invented
     // slot or show an empty placeholder while the owner creates the real unit.
-    if (!placement || !/^\d{1,20}$/.test(slot) || /^0+$/.test(slot)) return;
+    if (!placement || !/^\d{1,20}$/.test(slot) || /^0+$/.test(slot)) {
+      reportDelivery('Advertising is permitted, but this page has no configured ad placement.');
+      return;
+    }
     const content = document.getElementById('display-ad-content');
     const toggle = document.getElementById('toggle-display-ad');
     placement.hidden = false;
@@ -46,13 +53,16 @@
       const ad = supplied.cloneNode(true);
       content.append(ad);
       placement.dataset.state = 'requested';
+      reportDelivery('An ad has been requested. Waiting for Google to return it.');
       const fill = new MutationObserver(() => {
         if (ad.dataset.adStatus === 'unfilled') {
           placement.hidden = true;
           placement.dataset.state = 'unfilled';
+          reportDelivery('Google did not supply an ad for this visit. The empty placement is hidden.');
           fill.disconnect();
         } else if (ad.dataset.adStatus === 'filled') {
           placement.dataset.state = 'filled';
+          reportDelivery('Google has supplied an ad below the app. Use Show ad if you collapsed it.');
           fill.disconnect();
         }
       });
@@ -63,6 +73,7 @@
         fill.disconnect();
         placement.hidden = true;
         placement.dataset.state = 'failed';
+        reportDelivery('Google could not initialise this ad. The empty placement is hidden.');
       }
     }
     if (typeof IntersectionObserver === 'function') {
@@ -107,7 +118,7 @@
     script.src = supplied.src;
     script.crossOrigin = supplied.crossOrigin;
     script.addEventListener('load', () => {
-      report('enabled', 'Google advertising is enabled under your current privacy choices.');
+      report('enabled', 'Advertising is permitted. The collapsible ad is below the app and loads when scrolled into view.');
       prepareDisplayAd();
     });
     script.addEventListener('error', () => report('unavailable', 'Google advertising could not load. You can keep using Aviosmaxxing.'));
@@ -121,7 +132,13 @@
       else report('unavailable', 'Google’s consent service has not confirmed your choices. Advertising stays off.');
       return;
     }
-    // Opening the manager is not a new consent decision. Wait for completion.
+    // A visible message is a working CMP awaiting the visitor, not a service
+    // timeout. Opening it does not change previously confirmed permissions.
+    if (data.eventStatus === 'cmpuishown') {
+      clearTimeout(readyTimer);
+      report(started ? 'enabled' : 'waiting', 'Google’s privacy message is open. Accept, reject or manage your choices there.');
+      return;
+    }
     if (!['tcloaded', 'useractioncomplete'].includes(data.eventStatus)) return;
     clearTimeout(readyTimer);
     // A missing/unknown jurisdiction or incomplete TC string must not bypass
@@ -134,11 +151,21 @@
     if (!template && allowed && !blocked) report('ready', 'Google’s privacy choices are loaded. No advertising is displayed on this privacy notice.');
   }
   function listen() {
-    if (listening || typeof window.__tcfapi !== 'function') return;
+    const api = window.__tcfapi;
+    if (typeof api !== 'function' || (subscription?.api === api && subscription.confirmed)) return;
+    const next = { api, confirmed: false };
+    subscription = next;
     try {
-      window.__tcfapi('addEventListener', 2, onConsent);
-      listening = true;
+      api.call(window, 'addEventListener', 2, (data, success) => {
+        if (subscription !== next) return; // Discard callbacks from an old API.
+        // A stub may reject registration synchronously. Clear it inside the
+        // callback so a later readiness event can retry the same API function.
+        if (!success && !next.confirmed) subscription = null;
+        if (success && data?.cmpStatus === 'loaded') next.confirmed = true;
+        onConsent(data, success);
+      });
     } catch (_) {
+      if (subscription === next) subscription = null;
       report('unavailable', 'Google’s consent service could not be contacted. Advertising stays off.');
     }
   }
@@ -146,6 +173,7 @@
   document.querySelectorAll('[data-privacy-choices]').forEach(button => button.addEventListener('click', () => dialog.showModal()));
   document.getElementById('close-privacy').addEventListener('click', () => dialog.close());
   document.getElementById('review-google-consent').addEventListener('click', () => {
+    listen();
     if (typeof window.googlefc?.showRevocationMessage !== 'function') {
       status.textContent = 'Google’s privacy choices are unavailable. Use “Block advertising on this browser” to prevent advertising, or try again later.';
       return;
@@ -158,6 +186,9 @@
       status.textContent = 'Google’s privacy choices could not open. You can block advertising on this browser instead.';
     }
   });
+  window.addEventListener('focus', listen);
+  window.addEventListener('pageshow', listen);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) listen(); });
   block.addEventListener('change', () => {
     blocked = block.checked;
     if (!blocked && window.location.hash === '#advertising-off') {

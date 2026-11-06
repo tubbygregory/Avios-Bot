@@ -66,6 +66,28 @@ window.__tcfapi = (command, version, callback) => {
 window.googlefc.showRevocationMessage = () => { window.__privacyReviews++; };
 window.googlefc.callbackQueue.forEach(callback => callback.CONSENT_API_READY?.());`;
 
+const consentStubSDK = `
+window.__stubRegistrations = 0;
+window.__stubReady = false;
+window.__consentListeners = [];
+window.__emitConsent = (data, success = true) => window.__consentListeners.forEach(callback => callback(data, success));
+window.__privacyReviews = 0;
+window.googlefc.showRevocationMessage = () => { window.__privacyReviews++; };
+window.__tcfapi = (command, version, callback) => {
+  if (command !== 'addEventListener' || version !== 2) throw new Error('Unexpected consent API command');
+  if (!window.__stubReady) {
+    window.__stubRegistrations++;
+    callback({cmpStatus:'stub'}, false);
+    return;
+  }
+  window.__consentListeners.push(callback);
+  callback(window.__initialConsent, true);
+};
+window.__releaseConsent = (notify = true) => {
+  window.__stubReady = true;
+  if (notify) window.googlefc.callbackQueue.forEach(callback => callback.CONSENT_API_READY?.());
+};`;
+
 async function open(t, { storage, blockedStorage, sdkMode = 'mock', cmpMode = 'mock', consent, clock = false, viewport, hasTouch = false, colorScheme, contrast, forcedColors, userAgent } = {}) {
   const context = await browser.newContext({ viewport, hasTouch, colorScheme, contrast, forcedColors, userAgent, serviceWorkers: 'block' });
   t.after(() => context.close());
@@ -73,7 +95,7 @@ async function open(t, { storage, blockedStorage, sdkMode = 'mock', cmpMode = 'm
   await context.route('https://**/*', route => {
     const url = route.request().url();
     if (url === 'https://js.puter.com/v2/') return sdkMode === 'pending' ? undefined : sdkMode === 'missing' ? route.abort() : route.fulfill({ contentType: 'text/javascript', body: sdk });
-    if (url.startsWith('https://fundingchoicesmessages.google.com/')) return cmpMode === 'pending' ? undefined : cmpMode === 'missing' ? route.abort() : route.fulfill({contentType:'text/javascript',body:cmpMode === 'no-api' ? '/* CMP did not initialise */' : consentSDK});
+    if (url.startsWith('https://fundingchoicesmessages.google.com/')) return cmpMode === 'pending' ? undefined : cmpMode === 'missing' ? route.abort() : route.fulfill({contentType:'text/javascript',body:cmpMode === 'no-api' ? '/* CMP did not initialise */' : cmpMode === 'stub' ? consentStubSDK : consentSDK});
     if (url.startsWith('https://pagead2.googlesyndication.com/')) return route.fulfill({contentType:'text/javascript',body:`
       window.__adLoads=(window.__adLoads||0)+1;
       window.adsbygoogle={push:()=>{
@@ -1279,4 +1301,69 @@ test('iPad desktop-mode identification offers app handoff while a narrow desktop
   await ask(desktop,'Desktop window');await idle(desktop);
   assert.equal(await desktop.locator('#open-provider-app').isVisible(),false);
   assert.deepEqual(await desktop.evaluate(()=>window.__opened),['https://chatgpt.com/']);
+});
+
+test('consent startup recovers after an early API stub rejects listener registration', async t => {
+  const p=await open(t,{cmpMode:'stub',consent:acceptedConsent});
+  await p.waitForFunction(()=>window.__stubRegistrations>0);
+  assert.equal(await p.locator('#adsense-sdk').count(),0);
+  await p.evaluate(()=>window.__releaseConsent());
+  await p.waitForFunction(()=>window.__adLoads===1,{},{timeout:1500});
+  await p.evaluate(()=>window.__releaseConsent());
+  assert.equal(await p.evaluate(()=>window.__consentListeners.length),1,'one successful subscription');
+  assert.equal(await p.locator('#adsense-sdk').count(),1);
+});
+
+test('reviewing privacy choices retries a consent API that became ready without a callback', async t => {
+  const p=await open(t,{cmpMode:'stub',consent:acceptedConsent});
+  await p.waitForFunction(()=>window.__stubRegistrations>0);await p.evaluate(()=>window.__releaseConsent(false));
+  await privacy(p);await p.locator('#review-google-consent').click();
+  await p.waitForFunction(()=>window.__adLoads===1,{},{timeout:1500});
+  assert.equal(await p.evaluate(()=>window.__privacyReviews),1);
+});
+
+test('an open consent message stays pending instead of becoming a false service error', async t => {
+  const pending={cmpStatus:'loaded',eventStatus:'cmpuishown',gdprApplies:true};
+  const p=await open(t,{consent:pending,clock:true});await p.waitForFunction(()=>Boolean(window.__emitConsent));
+  await p.clock.fastForward(12000);
+  assert.equal(await p.locator('html').getAttribute('data-advertising'),'waiting');
+  assert.match(await p.locator('#privacy-status').textContent(),/privacy message is open/);
+  assert.equal(await p.locator('#adsense-sdk').count(),0);
+  await p.evaluate(data=>window.__emitConsent(data),acceptedConsent);await p.waitForFunction(()=>window.__adLoads===1);
+});
+
+test('privacy status distinguishes a Google no-fill result from an ad waiting below the app', async t => {
+  const p=await open(t,{viewport:{width:390,height:844},hasTouch:true});
+  await configureTestAd(p);await p.evaluate(()=>window.__adUnfilled=true);await acceptTestAds(p);
+  assert.match(await p.locator('#privacy-status').textContent(),/below the app/);
+  await p.locator('#display-ad-content').evaluate(e=>e.scrollIntoView());
+  await p.waitForFunction(()=>document.getElementById('display-ad').dataset.state==='unfilled');
+  assert.match(await p.locator('#privacy-status').textContent(),/did not supply an ad/);
+  assert.equal(await p.evaluate(()=>window.__adRequests),1);
+});
+
+test('returning to the page resubscribes after API replacement and ignores stale callbacks', async t => {
+  const p=await open(t);await p.waitForFunction(()=>window.__consentListeners?.length===1);
+  await p.locator('#chat-input').fill('Keep this draft');
+  await p.evaluate(data=>{
+    window.__staleConsentCallback=window.__consentListeners[0];
+    window.__replacementSubscriptions=0;
+    window.__tcfapi=(command,version,callback)=>{
+      if(command!=='addEventListener'||version!==2) throw new Error('Unexpected consent command');
+      window.__replacementSubscriptions++;callback(data,true);
+    };
+    window.dispatchEvent(new Event('focus'));
+  },acceptedConsent);
+  await p.waitForFunction(()=>window.__adLoads===1);
+  const navigations=[];p.on('framenavigated',frame=>{if(frame===p.mainFrame())navigations.push(frame.url());});
+  await p.evaluate(()=>{
+    window.__staleConsentCallback(null,false);
+    window.dispatchEvent(new Event('pageshow'));
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await p.waitForTimeout(50);
+  assert.deepEqual(navigations,[],'obsolete consent callbacks cannot reload the current page');
+  assert.equal(await p.locator('#chat-input').inputValue(),'Keep this draft');
+  assert.equal(await p.evaluate(()=>window.__replacementSubscriptions),1);
+  assert.equal(await p.locator('#adsense-sdk').count(),1);
 });
