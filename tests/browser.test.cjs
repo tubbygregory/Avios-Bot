@@ -1339,6 +1339,9 @@ test('privacy status distinguishes a Google no-fill result from an ad waiting be
   await p.locator('#display-ad-content').evaluate(e=>e.scrollIntoView());
   await p.waitForFunction(()=>document.getElementById('display-ad').dataset.state==='unfilled');
   assert.match(await p.locator('#privacy-status').textContent(),/did not supply an ad/);
+  await p.evaluate(()=>window.__emitConsent({cmpStatus:'loaded',eventStatus:'cmpuishown',gdprApplies:true}));
+  await p.evaluate(data=>window.__emitConsent(data),acceptedConsent);
+  assert.match(await p.locator('#privacy-status').textContent(),/did not supply an ad/,'closing privacy review restores the actual delivery status');
   assert.equal(await p.evaluate(()=>window.__adRequests),1);
 });
 

@@ -10,6 +10,8 @@
   const template = document.getElementById('adsense-code');
   let blocked = window.location.hash === '#advertising-off', allowed = false, started = false;
   let subscription = null;
+  let sdkState = 'idle';
+  let deliveryMessage = 'Advertising is permitted. The collapsible ad is below the app and loads when scrolled into view.';
   let readyTimer;
   try { blocked = blocked || localStorage.getItem(blockKey) === '1'; }
   catch (_) {
@@ -22,8 +24,14 @@
     document.documentElement.dataset.advertising = state;
     status.textContent = message;
   }
-  function reportDelivery(message) {
+  function reportDelivery(message = deliveryMessage) {
+    deliveryMessage = message;
     if (allowed && !blocked) report('enabled', message);
+  }
+  function reportSdkState() {
+    if (sdkState === 'ready') reportDelivery();
+    else if (sdkState === 'failed') report('unavailable', 'Google advertising could not load. You can keep using Aviosmaxxing.');
+    else report('loading', 'Loading Google advertising under your current privacy choices.');
   }
   function prepareDisplayAd() {
     const placement = document.getElementById('display-ad');
@@ -109,8 +117,13 @@
         : 'Advertising is off under the current Google privacy choices.');
       return;
     }
-    if (started || !template) return;
+    if (started) {
+      reportSdkState();
+      return;
+    }
+    if (!template) return;
     started = true;
+    sdkState = 'loading';
     const supplied = template.content.querySelector('script');
     const script = document.createElement('script');
     script.id = 'adsense-sdk';
@@ -118,11 +131,15 @@
     script.src = supplied.src;
     script.crossOrigin = supplied.crossOrigin;
     script.addEventListener('load', () => {
-      report('enabled', 'Advertising is permitted. The collapsible ad is below the app and loads when scrolled into view.');
+      sdkState = 'ready';
+      reportDelivery();
       prepareDisplayAd();
     });
-    script.addEventListener('error', () => report('unavailable', 'Google advertising could not load. You can keep using Aviosmaxxing.'));
-    report('loading', 'Loading Google advertising under your current privacy choices.');
+    script.addEventListener('error', () => {
+      sdkState = 'failed';
+      reportSdkState();
+    });
+    reportSdkState();
     document.head.append(script);
   }
   function onConsent(data, success) {
