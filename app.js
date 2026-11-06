@@ -321,32 +321,30 @@ async function sendToExternalAi(message) {
   window.AviosFeatures?.offerExternalSave();
   handoffStatus.textContent = 'Preparing your prompt…';
 
-  let tab = null;
+  let launchAttempted = false;
   try {
-    // Desktop popups must open during the gesture. On a phone, finish copying
-    // first, then use a real link tap so the OS can launch the installed app.
+    // Begin copying while this page still has focus. Desktop opens directly
+    // during the same gesture; the browser isolates the new tab at creation.
+    const copying = copyText(prompt, operation.signal);
     if (!mobile) {
       try {
-        tab = window.open('about:blank', '_blank');
-        if (tab) {
-          tab.opener = null;
-          tab.location.replace(provider.url);
-        }
-      } catch (_) {
-        try { tab?.close(); } catch (_) {}
-        tab = null;
-      }
+        window.open(provider.url, '_blank', 'noopener,noreferrer');
+        // A successful noopener open also returns null, so that return value
+        // cannot distinguish an isolated tab from a blocked popup.
+        launchAttempted = true;
+      } catch (_) {}
     }
-    const copied = await copyText(prompt, operation.signal);
+    const copied = await copying;
     if (activeOperation !== operation) return;
     const copyStatus = copied ? 'Prompt copied.' : 'Automatic copying was unavailable. Select and copy the prompt below.';
     const tabStatus = mobile
       ? `Tap “Open ${provider.label} app”, then paste and send. If the app does not open, use “Open ${provider.label} in browser”.`
-      : tab ? `Paste it into ${provider.label} and send it there.` : `The new tab was blocked. Use “Open ${provider.label}” below.`;
+      : launchAttempted ? `Paste it into ${provider.label} and send it there. If your assistant did not open, use “Open ${provider.label}” below.`
+        : `Your browser could not open the assistant. Use “Open ${provider.label}” below.`;
     handoffStatus.textContent = `${copyStatus} ${tabStatus}`;
-    if (!mobile) showToast(handoffStatus.textContent, copied && tab ? 'default' : 'error');
-    // Keep the original question for retry when either step failed.
-    if (copied && (mobile || tab)) {
+    if (!mobile) showToast(handoffStatus.textContent, copied && launchAttempted ? 'default' : 'error');
+    // Keep the question when copying fails or the launch attempt throws.
+    if (copied && (mobile || launchAttempted)) {
       input.value = '';
       autoGrow();
     }

@@ -142,7 +142,12 @@ async function idle(page) { await page.waitForFunction(() => !document.getElemen
 async function fakePopup(page, blocked = false) {
   await page.evaluate(blocked => {
     window.__opened = [];
-    window.open = () => blocked ? null : { opener: null, location: { replace: url => window.__opened.push(url) }, close() {} };
+    window.__openFeatures = [];
+    window.open = (url, target, features) => {
+      window.__opened.push(url);
+      window.__openFeatures.push(features);
+      return blocked ? null : { close() {} };
+    };
   }, blocked);
 }
 
@@ -253,7 +258,7 @@ test('denied clipboard and blocked popup retain a selectable prompt and working 
   const p = await open(t); await p.locator('[data-mode="own"]').click();
   await fakePopup(p, true); await p.evaluate(() => window.__clipboardDenied = true);
   await ask(p, 'A watch <img src=x onerror=alert(1)>'); await idle(p);
-  assert.match(await p.locator('#handoff-status').textContent(), /Select and copy.*blocked/s);
+  assert.match(await p.locator('#handoff-status').textContent(), /Select and copy.*If your assistant did not open/s);
   assert.equal(await p.locator('#chat-input').inputValue(), 'A watch <img src=x onerror=alert(1)>');
   assert.ok((await p.locator('#generated-prompt').inputValue()).includes('<img src=x'));
   assert.equal(await p.locator('#prompt-recovery img').count(), 0);
@@ -1375,4 +1380,20 @@ test('Google readiness resubscribes after API replacement and ignores stale call
   assert.equal(await p.locator('#chat-input').inputValue(),'Keep this draft');
   assert.equal(await p.evaluate(()=>window.__replacementSubscriptions),1);
   assert.equal(await p.locator('#adsense-sdk').count(),1);
+});
+
+test('desktop starts copying before direct isolated opening and accepts noopener null returns', async t => {
+  const p=await open(t);await p.locator('[data-mode="own"]').click();
+  await p.evaluate(()=>{
+    window.__directOpens=[];
+    window.open=(url,target,features)=>{
+      window.__directOpens.push({url,target,features,copied:window.__clipboard.length});
+      return null;
+    };
+  });
+  await ask(p,'Copy before opening');await idle(p);
+  assert.deepEqual(await p.evaluate(()=>window.__directOpens),[{url:'https://chatgpt.com/',target:'_blank',features:'noopener,noreferrer',copied:1}]);
+  assert.match(await p.locator('#handoff-status').textContent(),/Prompt copied.*If your assistant did not open/);
+  assert.equal(await p.locator('#chat-input').inputValue(),'');
+  assert.ok((await p.locator('#generated-prompt').inputValue()).includes('Copy before opening'));
 });

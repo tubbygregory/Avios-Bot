@@ -69,3 +69,5 @@ The owner reported Google approval. The existing publisher, unit `7897539333`, c
 The test-only Playwright tooling was updated from 1.56.1 to 1.65.0 after repeated CI Chromium renderer crashes in the existing browser-popup tests. The static deployed site gains no runtime dependency from this update. CI error annotations now retain the actual failing TAP cases, including failures earlier than the final 100 log lines.
 
 An unchanged production baseline also failed the Chromium CI job. Chromium test launches now use the full browser channel when no system executable is selected, matching the local multi-window test setup; the real popup assertions remain enabled. Firefox and WebKit retain their normal Playwright engines.
+
+Desktop own-AI handoff now starts clipboard work before opening the external site directly with browser-enforced noopener/noreferrer isolation. It removes the intermediate about:blank WindowProxy manipulation and does not mistake a null noopener return for a blocked popup. The browser fallback remains available. Existing real-popup/opener assertions are retained, with an added clipboard-before-opening regression.
