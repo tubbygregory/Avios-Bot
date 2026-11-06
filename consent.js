@@ -27,7 +27,7 @@
   function updateDiagnostics() {
     if (!diagnostics) return;
     // Never include TC strings, cookies, searches, rewards or arbitrary URLs.
-    diagnostics.textContent = [
+    const details = [
       'Aviosmaxxing advertising diagnostics v2',
       `Site: ${window.location.origin}`,
       `Consent script: ${consentScriptState}`,
@@ -44,6 +44,9 @@
       `Advertising state: ${document.documentElement.dataset.advertising || 'waiting'}`,
       `Scripts blocked by page security policy: ${[...blockedScripts].join(', ') || 'none observed'}`
     ].join('\n');
+    // Preserve the rendered text and any selection when only opening or
+    // copying the readout; replacing unchanged text can disrupt both.
+    if (diagnostics.textContent !== details) diagnostics.textContent = details;
   }
   function report(state, message) {
     document.documentElement.dataset.advertising = state;

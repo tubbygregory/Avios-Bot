@@ -1504,6 +1504,8 @@ test('loading details are included in page text and the Copy button supports den
   const p=await open(t,{cmpMode:'no-api'});
   await p.waitForFunction(()=>document.getElementById('advertising-diagnostics').textContent.includes('Consent script: loaded'));
   await privacy(p);await p.locator('#advertising-troubleshooting summary').click();
+  await p.locator('#advertising-diagnostics').waitFor({state:'visible'});
+  await p.waitForFunction(()=>document.body.innerText.includes('Consent script: loaded'),null,{timeout:1500});
   assert.match(await p.locator('body').innerText(),/Consent script: loaded/,'ordinary page copying includes the readout');
   assert.match(await p.locator('#advertising-diagnostics').textContent(),/Google GDPR applicability: not received/);
   await p.locator('#copy-advertising-diagnostics').click();
