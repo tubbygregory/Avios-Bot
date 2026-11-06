@@ -517,6 +517,12 @@ test('phone replies scroll into view and reset restores the compact banner', asy
     });
     assert.equal(await p.locator('.hero').isVisible(),false);
     await p.evaluate(() => window.scrollTo(0,document.documentElement.scrollHeight));
+    await p.waitForFunction(() => {
+      const answer = [...document.querySelectorAll('.answer-content')].at(-1);
+      const rect = [...answer.querySelectorAll('p')].at(-1).getBoundingClientRect();
+      const dock = document.querySelector('.composer-dock').getBoundingClientRect();
+      return rect.top >= 61 && rect.bottom <= dock.top;
+    });
     const lastText = await p.locator('.answer-content').last().locator('p').last().boundingBox();
     const dock = await p.locator('.composer-dock').boundingBox();
     assert.ok(lastText.y >= 61 && lastText.y + lastText.height <= dock.y, 'end of answer is clear of the dock');
@@ -848,7 +854,9 @@ test('appearance defaults to the device, follows live device changes and preserv
   assert.equal(await p.locator('#appearance').inputValue(),'dark');
   assert.equal(await p.evaluate(key=>localStorage.getItem(key),APPEARANCE_KEY),'dark');
   await appearance(p,'system');await hasTheme(p,'contrast');
-  await p.emulateMedia({contrast:'no-preference',colorScheme:'light'});await hasTheme(p,'light');
+  await p.emulateMedia({contrast:'no-preference',colorScheme:'light'});
+  // Returning from contrast settings needs the same Firefox emulation refresh.
+  await p.evaluate(()=>window.dispatchEvent(new Event('focus')));await hasTheme(p,'light');
 });
 
 test('invalid appearance storage falls back safely and blocked storage still applies the choice', async t => {
