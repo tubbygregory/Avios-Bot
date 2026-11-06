@@ -35,7 +35,17 @@ jobs:
             TEST_LOG_PATH="$RUNNER_TEMP/browser-tests.log" python3 - <<'PY'
           import os
           from pathlib import Path
-          message = '\n'.join(Path(os.environ['TEST_LOG_PATH']).read_text().splitlines()[-100:])
+          lines = Path(os.environ['TEST_LOG_PATH']).read_text().splitlines()
+          failures = []
+          for index, line in enumerate(lines):
+              if not line.startswith('not ok '):
+                  continue
+              end = index + 1
+              while end < len(lines) and not lines[end].startswith(('# Subtest:', 'ok ', 'not ok ', '1..')):
+                  end += 1
+              failures.extend(lines[index:end])
+          summary = [line for line in lines if line.startswith(('# tests ', '# pass ', '# fail ', '# duration_ms '))]
+          message = '\n'.join(failures or lines[-100:])[:24000] + '\n' + '\n'.join(summary)
           message = message.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
           print('::error title=Browser test failure::' + message)
           PY
