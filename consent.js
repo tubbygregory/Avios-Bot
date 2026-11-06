@@ -8,9 +8,13 @@
   const block = document.getElementById('block-advertising');
   const storageStatus = document.getElementById('privacy-storage');
   const template = document.getElementById('adsense-code');
+  const diagnostics = document.getElementById('advertising-diagnostics');
   let blocked = window.location.hash === '#advertising-off', allowed = false, started = false;
   let subscription = null;
   let sdkState = 'idle';
+  let consentScriptState = 'loading', consentCallback = 'not received', cmpStatus = 'not received', consentEvent = 'not received';
+  let reviewState = 'not requested';
+  const blockedScripts = new Set();
   let deliveryMessage = 'Advertising is permitted. The collapsible ad is below the app and loads when scrolled into view.';
   let readyTimer;
   try { blocked = blocked || localStorage.getItem(blockKey) === '1'; }
@@ -20,9 +24,30 @@
   }
   block.checked = blocked;
 
+  function updateDiagnostics() {
+    if (!diagnostics) return;
+    // Never include TC strings, cookies, searches, rewards or arbitrary URLs.
+    diagnostics.value = [
+      'Aviosmaxxing advertising diagnostics v1',
+      `Site: ${window.location.origin}`,
+      `Consent script: ${consentScriptState}`,
+      `Consent API: ${typeof window.__tcfapi === 'function' ? 'available' : 'unavailable'}`,
+      `Consent subscription: ${subscription ? subscription.confirmed ? 'confirmed' : 'pending' : 'none'}`,
+      `Consent callback: ${consentCallback}`,
+      `CMP state: ${cmpStatus}`,
+      `Consent event: ${consentEvent}`,
+      `Google review API: ${typeof window.googlefc?.showRevocationMessage === 'function' ? 'available' : 'unavailable'}`,
+      `Review request: ${reviewState}`,
+      `Browser advertising block: ${blocked ? 'on' : 'off'}`,
+      `Ad script: ${sdkState}`,
+      `Advertising state: ${document.documentElement.dataset.advertising || 'waiting'}`,
+      `Scripts blocked by page security policy: ${[...blockedScripts].join(', ') || 'none observed'}`
+    ].join('\n');
+  }
   function report(state, message) {
     document.documentElement.dataset.advertising = state;
     status.textContent = message;
+    updateDiagnostics();
   }
   function reportDelivery(message = deliveryMessage) {
     deliveryMessage = message;
@@ -143,6 +168,10 @@
     document.head.append(script);
   }
   function onConsent(data, success) {
+    consentCallback = success ? 'successful' : 'unsuccessful';
+    cmpStatus = ['stub', 'loading', 'loaded', 'error'].includes(data?.cmpStatus) ? data.cmpStatus : 'unknown';
+    consentEvent = ['tcloaded', 'cmpuishown', 'useractioncomplete'].includes(data?.eventStatus) ? data.eventStatus : 'unknown';
+    updateDiagnostics();
     if (!success || !data || data.cmpStatus !== 'loaded') {
       allowed = false;
       if (started || blocked) apply();
@@ -194,15 +223,37 @@
   document.getElementById('review-google-consent').addEventListener('click', () => {
     listen();
     if (typeof window.googlefc?.showRevocationMessage !== 'function') {
+      reviewState = 'API unavailable';
+      updateDiagnostics();
       status.textContent = 'Google’s privacy choices are unavailable. Use “Block advertising on this browser” to prevent advertising, or try again later.';
       return;
     }
     try {
+      reviewState = 'sent to Google';
+      updateDiagnostics();
       dialog.close();
       window.googlefc.showRevocationMessage();
     } catch (_) {
+      reviewState = 'API threw an error';
+      updateDiagnostics();
       dialog.showModal();
       status.textContent = 'Google’s privacy choices could not open. You can block advertising on this browser instead.';
+    }
+  });
+  document.getElementById('advertising-troubleshooting')?.addEventListener('toggle', updateDiagnostics);
+  document.addEventListener('securitypolicyviolation', event => {
+    if (event.disposition === 'report' || !event.effectiveDirective?.startsWith('script-src')) return;
+    let source;
+    if (event.blockedURI === 'inline' || event.blockedURI === 'eval') source = event.blockedURI;
+    else {
+      try {
+        const host = new URL(event.blockedURI).hostname;
+        if (['google.com', 'googlesyndication.com', 'googletagservices.com', 'gstatic.com', 'doubleclick.net', 'adtrafficquality.google'].some(domain => host === domain || host.endsWith('.' + domain))) source = host;
+      } catch (_) { /* No arbitrary event text enters diagnostics. */ }
+    }
+    if (source) {
+      blockedScripts.add(source);
+      updateDiagnostics();
     }
   });
   block.addEventListener('change', () => {
@@ -248,8 +299,15 @@
   cmp.id = 'google-consent-manager';
   cmp.async = true;
   cmp.src = 'https://fundingchoicesmessages.google.com/i/pub-8404673257565926?ers=1';
-  cmp.addEventListener('load', listen);
-  cmp.addEventListener('error', () => report(blocked ? 'blocked' : 'unavailable', 'Google’s consent service could not load. Advertising stays off. You can keep using Aviosmaxxing.'));
+  cmp.addEventListener('load', () => {
+    consentScriptState = 'loaded';
+    listen();
+    updateDiagnostics();
+  });
+  cmp.addEventListener('error', () => {
+    consentScriptState = 'failed';
+    report(blocked ? 'blocked' : 'unavailable', 'Google’s consent service could not load. Advertising stays off. You can keep using Aviosmaxxing.');
+  });
   readyTimer = setTimeout(() => {
     if (!allowed && !blocked) report('unavailable', 'Google’s consent service has not confirmed your choices. Advertising stays off. You can keep using Aviosmaxxing.');
   }, 10000);

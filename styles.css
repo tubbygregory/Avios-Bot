@@ -152,6 +152,10 @@ details[open] > .profile-summary .profile-edit svg { transform: rotate(180deg); 
 .privacy-block { display: flex; align-items: flex-start; gap: 10px; min-height: 44px; margin-top: 18px; padding-block: 10px; cursor: pointer; }
 .privacy-block input { width: 20px; height: 20px; margin: 2px 0 0; flex-shrink: 0; accent-color: var(--avios-blue); }
 .privacy-block:has(input:focus-visible) { outline: 3px solid var(--avios-blue); outline-offset: 3px; }
+.advertising-troubleshooting { margin-block: 16px; font-size: 13px; }
+.advertising-troubleshooting summary { min-height: 44px; padding-block: 10px; cursor: pointer; }
+.advertising-troubleshooting label { display: block; margin-bottom: 6px; }
+.advertising-troubleshooting textarea { display: block; width: 100%; min-height: 180px; padding: 10px; resize: vertical; border: 1px solid var(--control-border); border-radius: 8px; background: var(--white); color: var(--text); font: 16px/1.5 monospace; }
 
 .site-header {
   position: sticky;

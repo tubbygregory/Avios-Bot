@@ -1397,3 +1397,69 @@ test('desktop starts copying before direct isolated opening and accepts noopener
   assert.equal(await p.locator('#chat-input').inputValue(),'');
   assert.ok((await p.locator('#generated-prompt').inputValue()).includes('Copy before opening'));
 });
+
+test('privacy troubleshooting distinguishes a failed script from a loaded script without a consent API', async t => {
+  for (const [cmpMode, expected] of [['missing', 'failed'], ['no-api', 'loaded']]) {
+    const p=await open(t,{cmpMode});
+    await p.waitForFunction(expected=>document.getElementById('advertising-diagnostics').value.includes('Consent script: '+expected),expected);
+    await privacy(p);
+    assert.equal(await p.locator('#advertising-diagnostics').isVisible(),false,'technical details start collapsed');
+    const summary=p.locator('#advertising-troubleshooting summary');
+    await summary.focus();await summary.press('Enter');
+    assert.equal(await p.locator('#advertising-diagnostics').isVisible(),true);
+    await p.locator('#review-google-consent').click();
+    const text=await p.locator('#advertising-diagnostics').inputValue();
+    assert.ok(text.includes('Consent script: '+expected));
+    assert.match(text,/Consent API: unavailable/);
+    assert.match(text,/Review request: API unavailable/);
+    assert.match(text,/Ad script: idle/);
+    assert.equal(await p.locator('#adsense-sdk').count(),0,'troubleshooting cannot bypass consent');
+  }
+});
+
+test('privacy troubleshooting records enforced CSP failures without exposing private values or arbitrary URLs', async t => {
+  const p=await open(t);
+  await p.goto(origin+'?private=private-query-value#private-fragment');
+  await p.waitForFunction(()=>Boolean(window.__emitConsent));
+  await p.locator('#chat-input').fill('private-question-value');
+  await p.evaluate(data=>window.__emitConsent(data),{...acceptedConsent,tcString:'private-consent-value'});
+  await p.waitForFunction(()=>window.__adLoads===1);
+  await p.evaluate(()=>{
+    const script=document.createElement('script');
+    script.textContent='window.__inlineProbe = true;';
+    document.head.append(script);
+    document.dispatchEvent(new SecurityPolicyViolationEvent('securitypolicyviolation',{
+      effectiveDirective:'script-src-elem',disposition:'enforce',blockedURI:'https://ep1.adtrafficquality.google/example?private=secret-url-value'
+    }));
+    document.dispatchEvent(new SecurityPolicyViolationEvent('securitypolicyviolation',{
+      effectiveDirective:'script-src-elem',disposition:'report',blockedURI:'https://report-only.google.com/private'
+    }));
+  });
+  await p.waitForFunction(()=>document.getElementById('advertising-diagnostics').value.includes('inline'));
+  await privacy(p);await p.locator('#advertising-troubleshooting summary').click();
+  const text=await p.locator('#advertising-diagnostics').inputValue();
+  assert.equal(await p.evaluate(()=>window.__inlineProbe),undefined,'the existing inline-script policy is enforced');
+  assert.ok(text.includes('Site: '+new URL(origin).origin));
+  assert.match(text,/Consent script: loaded/);assert.match(text,/Consent subscription: confirmed/);
+  assert.match(text,/CMP state: loaded/);assert.match(text,/Ad script: ready/);
+  assert.match(text,/ep1\.adtrafficquality\.google/);
+  assert.doesNotMatch(text,/private-|secret-url-value|\/example|report-only/);
+});
+
+test('advertising troubleshooting stays accessible on phones in every appearance mode and on the privacy notice', async t => {
+  const p=await open(t,{viewport:{width:390,height:844},hasTouch:true});
+  await p.evaluate(axe.source);
+  for (const theme of ['light','dark','contrast']) {
+    await p.evaluate(theme=>document.documentElement.dataset.theme=theme,theme);
+    await privacy(p);
+    if (!await p.locator('#advertising-troubleshooting').evaluate(e=>e.open)) await p.locator('#advertising-troubleshooting summary').click();
+    assert.deepEqual(await p.evaluate(()=>({fits:document.documentElement.scrollWidth<=innerWidth,font:parseFloat(getComputedStyle(document.getElementById('advertising-diagnostics')).fontSize)})),{fits:true,font:16});
+    const results=await p.evaluate(()=>axe.run(document.getElementById('privacy-dialog')));
+    assert.deepEqual(results.violations.map(v=>v.id),[],theme+' privacy accessibility');
+    await p.locator('#close-privacy').click();
+  }
+  await p.goto(origin+'privacy.html');await privacy(p);
+  await p.locator('#advertising-troubleshooting summary').click();
+  assert.match(await p.locator('#advertising-diagnostics').inputValue(),/Aviosmaxxing advertising diagnostics/);
+  assert.equal(await p.locator('#adsense-sdk').count(),0);
+});

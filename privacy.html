@@ -49,6 +49,12 @@
     <button id="review-google-consent" class="tool-button" type="button">Review Google privacy choices</button>
     <label class="privacy-block"><input id="block-advertising" type="checkbox"><span>Block advertising on this browser</span></label>
     <p id="privacy-storage" class="tool-copy">This additional block is saved on this browser. Turning it on reloads the page if advertising has already started, clearing any unsaved conversation.</p>
+    <details id="advertising-troubleshooting" class="advertising-troubleshooting">
+      <summary>Advertising troubleshooting</summary>
+      <p>These loading details stay in your browser. They exclude cookies, consent strings, searches and reward selections. You can copy them to help report a problem.</p>
+      <label for="advertising-diagnostics">Advertising loading details</label>
+      <textarea id="advertising-diagnostics" rows="9" readonly spellcheck="false"></textarea>
+    </details>
   </dialog>
   <script src="./consent.js" defer></script>
 </body>
