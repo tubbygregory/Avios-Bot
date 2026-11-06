@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const { createServer } = require('node:http');
 const { readFileSync, existsSync } = require('node:fs');
 const { resolve, extname } = require('node:path');
+const { createHash } = require('node:crypto');
 const { chromium, firefox, webkit } = require('playwright');
 const axe = require('axe-core');
 
@@ -966,6 +967,41 @@ test('a consent manager may confirm non-GDPR applicability but unknown applicabi
   await p.waitForFunction(()=>window.__adLoads===1);
 });
 
+test('eventless non-GDPR TCData is usable with or without the optional loaded CMP status', async t => {
+  for (const extra of [{}, {cmpStatus:'loaded'}]) {
+    const p=await open(t,{clock:true,consent:{gdprApplies:false,tcfPolicyVersion:4,cmpId:300,cmpVersion:1,...extra}});
+    await p.waitForFunction(()=>window.__adLoads===1,null,{timeout:1500});
+    await p.clock.fastForward(12000);
+    assert.equal(await p.locator('html').getAttribute('data-advertising'),'enabled');
+    await privacy(p);await p.locator('#review-google-consent').click();
+    assert.equal(await p.evaluate(()=>window.__consentListeners.length),1,'the minimal response confirms the subscription');
+  }
+});
+
+test('eventless replies cannot bypass unknown applicability, failed callbacks, CMP errors or the browser block', async t => {
+  const p=await open(t);
+  await p.waitForFunction(()=>Boolean(window.__emitConsent));
+  for (const data of [
+    {cmpStatus:'loaded'},
+    {...acceptedConsent,eventStatus:undefined},
+    {gdprApplies:false,cmpStatus:'stub'},
+    {gdprApplies:false,cmpStatus:'loading'},
+    {gdprApplies:false,cmpStatus:'error'},
+    {gdprApplies:'false'},
+    {gdprApplies:null}
+  ]) {
+    await p.evaluate(data=>window.__emitConsent(data),data);
+    assert.equal(await p.locator('#adsense-sdk').count(),0);
+  }
+  for (const success of [false,1,'true',undefined]) {
+    await p.evaluate(success=>window.__emitConsent({gdprApplies:false},success === undefined ? null : success),success);
+    assert.equal(await p.locator('#adsense-sdk').count(),0);
+  }
+  const blocked=await open(t,{storage:{[AD_BLOCK_KEY]:'1'},consent:{gdprApplies:false}});
+  await blocked.waitForFunction(()=>Boolean(window.__emitConsent));
+  assert.equal(await blocked.locator('#adsense-sdk').count(),0);
+});
+
 test('persistent advertising block overrides Google consent, survives reload and syncs across tabs', async t => {
   const p=await open(t,{storage:{[AD_BLOCK_KEY]:'1'},consent:acceptedConsent});
   await p.waitForFunction(()=>Boolean(window.__emitConsent));
@@ -1401,14 +1437,14 @@ test('desktop starts copying before direct isolated opening and accepts noopener
 test('privacy troubleshooting distinguishes a failed script from a loaded script without a consent API', async t => {
   for (const [cmpMode, expected] of [['missing', 'failed'], ['no-api', 'loaded']]) {
     const p=await open(t,{cmpMode});
-    await p.waitForFunction(expected=>document.getElementById('advertising-diagnostics').value.includes('Consent script: '+expected),expected);
+    await p.waitForFunction(expected=>document.getElementById('advertising-diagnostics').textContent.includes('Consent script: '+expected),expected);
     await privacy(p);
     assert.equal(await p.locator('#advertising-diagnostics').isVisible(),false,'technical details start collapsed');
     const summary=p.locator('#advertising-troubleshooting summary');
     await summary.focus();await summary.press('Enter');
     assert.equal(await p.locator('#advertising-diagnostics').isVisible(),true);
     await p.locator('#review-google-consent').click();
-    const text=await p.locator('#advertising-diagnostics').inputValue();
+    const text=await p.locator('#advertising-diagnostics').textContent();
     assert.ok(text.includes('Consent script: '+expected));
     assert.match(text,/Consent API: unavailable/);
     assert.match(text,/Review request: API unavailable/);
@@ -1435,9 +1471,9 @@ test('privacy troubleshooting records enforced CSP failures without exposing pri
       effectiveDirective:'script-src-elem',disposition:'report',blockedURI:'https://report-only.google.com/private'
     }));
   });
-  await p.waitForFunction(()=>document.getElementById('advertising-diagnostics').value.includes('inline'));
+  await p.waitForFunction(()=>document.getElementById('advertising-diagnostics').textContent.includes('inline'));
   await privacy(p);await p.locator('#advertising-troubleshooting summary').click();
-  const text=await p.locator('#advertising-diagnostics').inputValue();
+  const text=await p.locator('#advertising-diagnostics').textContent();
   assert.equal(await p.evaluate(()=>window.__inlineProbe),undefined,'the existing inline-script policy is enforced');
   assert.ok(text.includes('Site: '+new URL(origin).origin));
   assert.match(text,/Consent script: loaded/);assert.match(text,/Consent subscription: confirmed/);
@@ -1460,6 +1496,36 @@ test('advertising troubleshooting stays accessible on phones in every appearance
   }
   await p.goto(origin+'privacy.html');await privacy(p);
   await p.locator('#advertising-troubleshooting summary').click();
-  assert.match(await p.locator('#advertising-diagnostics').inputValue(),/Aviosmaxxing advertising diagnostics/);
+  assert.match(await p.locator('#advertising-diagnostics').textContent(),/Aviosmaxxing advertising diagnostics/);
   assert.equal(await p.locator('#adsense-sdk').count(),0);
+});
+
+test('loading details are included in page text and the Copy button supports denied clipboard access', async t => {
+  const p=await open(t,{cmpMode:'no-api'});
+  await p.waitForFunction(()=>document.getElementById('advertising-diagnostics').textContent.includes('Consent script: loaded'));
+  await privacy(p);await p.locator('#advertising-troubleshooting summary').click();
+  assert.match(await p.locator('body').innerText(),/Consent script: loaded/,'ordinary page copying includes the readout');
+  assert.match(await p.locator('#advertising-diagnostics').textContent(),/Google GDPR applicability: not received/);
+  await p.locator('#copy-advertising-diagnostics').click();
+  await p.waitForFunction(()=>window.__clipboard.length===1);
+  assert.equal(await p.evaluate(()=>window.__clipboard[0]),await p.locator('#advertising-diagnostics').textContent());
+  await p.evaluate(()=>window.__clipboardDenied=true);
+  await p.locator('#copy-advertising-diagnostics').click();
+  await p.waitForFunction(()=>document.getElementById('advertising-copy-status').textContent.includes('selected'));
+  assert.equal(await p.evaluate(()=>getSelection().toString()),await p.locator('#advertising-diagnostics').textContent());
+  assert.equal(await p.evaluate(()=>document.activeElement.id),'advertising-diagnostics');
+  assert.equal(await p.locator('#adsense-sdk').count(),0);
+});
+
+test('both pages reference the current consent script and stylesheet revisions', async t => {
+  const p=await open(t);
+  for (const path of ['', 'privacy.html']) {
+    if (path) await p.goto(origin+path);
+    for (const file of ['consent.js','styles.css']) {
+      const hash=createHash('sha256').update(readFileSync(resolve(__dirname,'..',file))).digest('hex').slice(0,12);
+      const selector=file.endsWith('.js')?'script[src*="consent.js"]':'link[rel="stylesheet"]';
+      const url=new URL(await p.locator(selector).getAttribute(file.endsWith('.js')?'src':'href'),p.url());
+      assert.equal(url.searchParams.get('v'),hash,file+' revision matches its current contents');
+    }
+  }
 });

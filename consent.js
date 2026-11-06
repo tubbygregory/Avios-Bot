@@ -12,7 +12,7 @@
   let blocked = window.location.hash === '#advertising-off', allowed = false, started = false;
   let subscription = null;
   let sdkState = 'idle';
-  let consentScriptState = 'loading', consentCallback = 'not received', cmpStatus = 'not received', consentEvent = 'not received';
+  let consentScriptState = 'loading', consentCallback = 'not received', cmpStatus = 'not received', consentEvent = 'not received', gdprStatus = 'not received';
   let reviewState = 'not requested';
   const blockedScripts = new Set();
   let deliveryMessage = 'Advertising is permitted. The collapsible ad is below the app and loads when scrolled into view.';
@@ -27,8 +27,8 @@
   function updateDiagnostics() {
     if (!diagnostics) return;
     // Never include TC strings, cookies, searches, rewards or arbitrary URLs.
-    diagnostics.value = [
-      'Aviosmaxxing advertising diagnostics v1',
+    diagnostics.textContent = [
+      'Aviosmaxxing advertising diagnostics v2',
       `Site: ${window.location.origin}`,
       `Consent script: ${consentScriptState}`,
       `Consent API: ${typeof window.__tcfapi === 'function' ? 'available' : 'unavailable'}`,
@@ -36,6 +36,7 @@
       `Consent callback: ${consentCallback}`,
       `CMP state: ${cmpStatus}`,
       `Consent event: ${consentEvent}`,
+      `Google GDPR applicability: ${gdprStatus}`,
       `Google review API: ${typeof window.googlefc?.showRevocationMessage === 'function' ? 'available' : 'unavailable'}`,
       `Review request: ${reviewState}`,
       `Browser advertising block: ${blocked ? 'on' : 'off'}`,
@@ -167,12 +168,19 @@
     reportSdkState();
     document.head.append(script);
   }
+  function readyConsentData(data) {
+    // IAB TCData outside GDPR may contain only gdprApplies, tcfPolicyVersion,
+    // cmpId and cmpVersion, with no cmpStatus or eventStatus. An explicit
+    // loading/stub/error result must still never be treated as ready.
+    return data?.cmpStatus === 'loaded' || (data?.gdprApplies === false && data.cmpStatus === undefined);
+  }
   function onConsent(data, success) {
-    consentCallback = success ? 'successful' : 'unsuccessful';
+    consentCallback = success === true ? 'successful' : 'unsuccessful';
     cmpStatus = ['stub', 'loading', 'loaded', 'error'].includes(data?.cmpStatus) ? data.cmpStatus : 'unknown';
-    consentEvent = ['tcloaded', 'cmpuishown', 'useractioncomplete'].includes(data?.eventStatus) ? data.eventStatus : 'unknown';
+    consentEvent = data?.eventStatus === undefined ? 'not provided' : ['tcloaded', 'cmpuishown', 'useractioncomplete'].includes(data.eventStatus) ? data.eventStatus : 'unrecognised';
+    gdprStatus = data?.gdprApplies === true ? 'applies' : data?.gdprApplies === false ? 'does not apply' : 'unknown';
     updateDiagnostics();
-    if (!success || !data || data.cmpStatus !== 'loaded') {
+    if (success !== true || !readyConsentData(data)) {
       allowed = false;
       if (started || blocked) apply();
       else report('unavailable', 'Google’s consent service has not confirmed your choices. Advertising stays off.');
@@ -180,14 +188,14 @@
     }
     // A visible message is a working CMP awaiting the visitor, not a service
     // timeout. Opening it does not change previously confirmed permissions.
-    if (data.eventStatus === 'cmpuishown') {
+    if (data.gdprApplies !== false && data.eventStatus === 'cmpuishown') {
       clearTimeout(readyTimer);
       report(blocked ? 'blocked' : started ? 'enabled' : 'waiting', blocked
         ? 'Advertising is blocked on this browser. You can still review Google’s privacy message.'
         : 'Google’s privacy message is open. Accept, reject or manage your choices there.');
       return;
     }
-    if (!['tcloaded', 'useractioncomplete'].includes(data.eventStatus)) return;
+    if (data.gdprApplies !== false && !['tcloaded', 'useractioncomplete'].includes(data.eventStatus)) return;
     clearTimeout(readyTimer);
     // A missing/unknown jurisdiction or incomplete TC string must not bypass
     // consent. Google vendor 755 + purpose 1 is only the minimum storage gate;
@@ -208,8 +216,8 @@
         if (subscription !== next) return; // Discard callbacks from an old API.
         // A stub may reject registration synchronously. Clear it inside the
         // callback so a later readiness event can retry the same API function.
-        if (!success && !next.confirmed) subscription = null;
-        if (success && data?.cmpStatus === 'loaded') next.confirmed = true;
+        if (success !== true && !next.confirmed) subscription = null;
+        if (success === true && readyConsentData(data)) next.confirmed = true;
         onConsent(data, success);
       });
     } catch (_) {
@@ -241,6 +249,22 @@
     }
   });
   document.getElementById('advertising-troubleshooting')?.addEventListener('toggle', updateDiagnostics);
+  document.getElementById('copy-advertising-diagnostics')?.addEventListener('click', async () => {
+    updateDiagnostics();
+    const result = document.getElementById('advertising-copy-status');
+    try {
+      await navigator.clipboard.writeText(diagnostics.textContent);
+      result.textContent = 'Loading details copied. You can paste them into your support message.';
+    } catch (_) {
+      diagnostics.focus();
+      const range = document.createRange();
+      range.selectNodeContents(diagnostics);
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+      result.textContent = 'Automatic copying is unavailable. The loading details are selected; use Copy or press Ctrl+C.';
+    }
+  });
   document.addEventListener('securitypolicyviolation', event => {
     if (event.disposition === 'report' || !event.effectiveDirective?.startsWith('script-src')) return;
     let source;

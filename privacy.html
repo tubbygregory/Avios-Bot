@@ -10,7 +10,7 @@
   <title>Privacy notice — Aviosmaxxing</title>
   <script src="./theme.js"></script>
   <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="./styles.css" />
+  <link rel="stylesheet" href="./styles.css?v=216b7b907fc3" />
 </head>
 <body class="privacy-page">
   <header class="site-header"><div class="header-inner"><a class="brand" href="./">Aviosmaxxing</a><a class="tool-link" href="./">Back to search</a></div></header>
@@ -52,10 +52,12 @@
     <details id="advertising-troubleshooting" class="advertising-troubleshooting">
       <summary>Advertising troubleshooting</summary>
       <p>These loading details stay in your browser. They exclude cookies, consent strings, searches and reward selections. You can copy them to help report a problem.</p>
-      <label for="advertising-diagnostics">Advertising loading details</label>
-      <textarea id="advertising-diagnostics" rows="9" readonly spellcheck="false"></textarea>
+      <p>Advertising loading details</p>
+      <pre id="advertising-diagnostics" tabindex="0">Loading details are starting. If this text stays here, refresh the page to load the latest script.</pre>
+      <button id="copy-advertising-diagnostics" type="button" class="tool-button">Copy loading details</button>
+      <p id="advertising-copy-status" role="status"></p>
     </details>
   </dialog>
-  <script src="./consent.js" defer></script>
+  <script src="./consent.js?v=660f755c3ed6" defer></script>
 </body>
 </html>
