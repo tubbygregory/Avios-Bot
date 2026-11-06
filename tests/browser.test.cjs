@@ -25,7 +25,10 @@ before(async () => {
   const engine = process.env.TEST_BROWSER || 'chromium';
   assert.ok(['chromium', 'firefox', 'webkit'].includes(engine), 'supported test browser');
   const executablePath = engine === 'chromium' ? process.env.CHROMIUM_PATH || (existsSync('/usr/bin/chromium') ? '/usr/bin/chromium' : undefined) : undefined;
-  browser = await ({ chromium, firefox, webkit })[engine].launch({ executablePath, args: engine === 'chromium' ? ['--no-sandbox'] : [] });
+  // The full Chromium channel supports the same multi-window lifecycle as the
+  // system browser used locally; avoid the separate headless-shell build.
+  const channel = engine === 'chromium' && !executablePath ? 'chromium' : undefined;
+  browser = await ({ chromium, firefox, webkit })[engine].launch({ executablePath, channel, args: engine === 'chromium' ? ['--no-sandbox'] : [] });
 });
 after(async () => { await browser?.close(); await new Promise(done => server?.close(done)); });
 
