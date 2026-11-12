@@ -8,6 +8,9 @@
   const block = document.getElementById('block-advertising');
   const storageStatus = document.getElementById('privacy-storage');
   const template = document.getElementById('adsense-code');
+  // Advertising belongs to complete, static publisher guides only. Consent
+  // alone must never turn an empty chat/search or a navigation page into an ad.
+  const advertisingEligible = Boolean(template && document.querySelector('main > article[data-advertising-content="guide"]') && document.getElementById('display-ad'));
   const diagnostics = document.getElementById('advertising-diagnostics');
   let blocked = window.location.hash === '#advertising-off', allowed = false, started = false;
   let subscription = null;
@@ -15,7 +18,7 @@
   let consentScriptState = 'loading', consentCallback = 'not received', cmpStatus = 'not received', consentEvent = 'not received', gdprStatus = 'not received';
   let reviewState = 'not requested';
   const blockedScripts = new Set();
-  let deliveryMessage = 'Advertising is permitted. The collapsible ad is below the app and loads when scrolled into view.';
+  let deliveryMessage = 'Advertising is permitted. The collapsible ad is after this guide and loads when scrolled into view.';
   let readyTimer;
   try { blocked = blocked || localStorage.getItem(blockKey) === '1'; }
   catch (_) {
@@ -40,6 +43,7 @@
       `Google review API: ${typeof window.googlefc?.showRevocationMessage === 'function' ? 'available' : 'unavailable'}`,
       `Review request: ${reviewState}`,
       `Browser advertising block: ${blocked ? 'on' : 'off'}`,
+      `Page advertising: ${advertisingEligible ? 'eligible guide' : 'disabled'}`,
       `Ad script: ${sdkState}`,
       `Advertising state: ${document.documentElement.dataset.advertising || 'waiting'}`,
       `Scripts blocked by page security policy: ${[...blockedScripts].join(', ') || 'none observed'}`
@@ -99,7 +103,7 @@
           fill.disconnect();
         } else if (ad.dataset.adStatus === 'filled') {
           placement.dataset.state = 'filled';
-          reportDelivery('Google has supplied an ad below the app. Use Show ad if you collapsed it.');
+          reportDelivery('Google has supplied an ad after this guide. Use Show ad if you collapsed it.');
           fill.disconnect();
         }
       });
@@ -150,7 +154,10 @@
       reportSdkState();
       return;
     }
-    if (!template) return;
+    if (!advertisingEligible) {
+      report('ready', 'Google’s privacy choices are loaded. No advertising is displayed on this page. Ads are limited to full rewards guides.');
+      return;
+    }
     started = true;
     sdkState = 'loading';
     const supplied = template.content.querySelector('script');
@@ -207,7 +214,6 @@
       typeof data.tcString === 'string' && data.tcString.length > 0 &&
       data.vendor?.consents?.[755] === true && data.purpose?.consents?.[1] === true);
     apply();
-    if (!template && allowed && !blocked) report('ready', 'Google’s privacy choices are loaded. No advertising is displayed on this privacy notice.');
   }
   function listen() {
     const api = window.__tcfapi;

@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://aviosmaxxing.co.uk/sitemap.xml

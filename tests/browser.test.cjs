@@ -92,7 +92,7 @@ window.__releaseConsent = (notify = true) => {
   if (notify) window.googlefc.callbackQueue.forEach(callback => callback.CONSENT_API_READY?.());
 };`;
 
-async function open(t, { storage, blockedStorage, sdkMode = 'mock', cmpMode = 'mock', consent, clock = false, viewport, hasTouch = false, colorScheme, contrast, forcedColors, userAgent } = {}) {
+async function open(t, { path = '', publisherFixture = false, storage, blockedStorage, sdkMode = 'mock', cmpMode = 'mock', consent, clock = false, viewport, hasTouch = false, colorScheme, contrast, forcedColors, userAgent } = {}) {
   const context = await browser.newContext({ viewport, hasTouch, colorScheme, contrast, forcedColors, userAgent, serviceWorkers: 'block' });
   t.after(() => context.close());
   // No provider, SDK or AI traffic escapes this deterministic test suite.
@@ -109,6 +109,18 @@ async function open(t, { storage, blockedStorage, sdkMode = 'mock', cmpMode = 'm
       }};`});
     return route.fulfill({ contentType: 'text/html', body: '<title>Assistant test destination</title>' });
   });
+  if (publisherFixture) {
+    // Component harness: retain the app controls used by existing isolation
+    // checks, but attach the actual complete guide and its actual ad markup.
+    // Production index.html is separately tested to never load advertising.
+    const guide=readFileSync(resolve(__dirname,'..','avios-value.html'),'utf8');
+    const article=guide.match(/<article class="publisher-article"[\s\S]*?<\/article>/)[0];
+    const placement=guide.match(/<aside id="display-ad"[\s\S]*?<\/aside>/)[0];
+    const loader=guide.match(/<template id="adsense-code">[\s\S]*?<\/template>/)[0];
+    const harness=readFileSync(resolve(__dirname,'..','index.html'),'utf8').replace('</main>',article+'</main>'+placement+loader);
+    await context.route(url=>url.origin===new URL(origin).origin&&url.pathname===new URL(origin).pathname,
+      route=>route.fulfill({contentType:'text/html',body:harness}));
+  }
   await context.addInitScript(({ storage, blockedStorage, consent }) => {
     window.__initialConsent = consent;
     if (storage) for (const [key, value] of Object.entries(storage)) localStorage.setItem(key, value);
@@ -126,11 +138,13 @@ async function open(t, { storage, blockedStorage, sdkMode = 'mock', cmpMode = 'm
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   t.after(() => assert.deepEqual(errors, [], 'no uncaught browser errors'));
-  await page.goto(origin, { waitUntil: 'domcontentloaded' });
-  await page.locator('[data-prompt]').first().waitFor();
-  if (sdkMode === 'mock') await page.waitForFunction(() => Boolean(window.puter));
+  await page.goto(origin + path, { waitUntil: 'domcontentloaded' });
+  await page.locator(path ? 'main' : '[data-prompt]').first().waitFor();
+  if (!path && sdkMode === 'mock') await page.waitForFunction(() => Boolean(window.puter));
   return page;
 }
+function openPublisherFixture(t, options = {}) { return open(t, {...options,publisherFixture:true}); }
+
 async function choose(page, id) {
   if (!await page.locator('#reward-details').evaluate(e => e.open)) await page.locator('.profile-summary').click();
   await page.locator('label').filter({ has: page.locator(id) }).click();
@@ -925,7 +939,7 @@ async function privacy(page) {
 }
 
 test('AdSense verification and seller details are public but the supplied advertising script stays inert until consent', async t => {
-  const p = await open(t);
+  const p = await openPublisherFixture(t);
   assert.equal(await p.locator('meta[name="google-adsense-account"]').getAttribute('content'),'ca-pub-8404673257565926');
   assert.match(await (await p.request.get(origin+'ads.txt')).text(),/^google\.com, pub-8404673257565926, DIRECT, f08c47fec0942fa0\s*$/);
   assert.equal(await p.locator('#adsense-sdk').count(),0);
@@ -944,7 +958,7 @@ test('AdSense verification and seller details are public but the supplied advert
 });
 
 test('missing jurisdiction, incomplete consent, rejection and CMP failures cannot enable advertising', async t => {
-  const p=await open(t);
+  const p=await openPublisherFixture(t);
   await p.waitForFunction(()=>Boolean(window.__emitConsent));
   for (const data of [
     {...acceptedConsent,gdprApplies:undefined},
@@ -958,7 +972,7 @@ test('missing jurisdiction, incomplete consent, rejection and CMP failures canno
   ]) await p.evaluate(data=>window.__emitConsent(data),data);
   await p.evaluate(data=>window.__emitConsent(data,false),acceptedConsent);
   assert.equal(await p.locator('#adsense-sdk').count(),0);
-  const unavailable=await open(t,{cmpMode:'missing'});
+  const unavailable=await openPublisherFixture(t,{cmpMode:'missing'});
   await unavailable.waitForFunction(()=>document.documentElement.dataset.advertising==='unavailable');
   await unavailable.locator('[data-mode="own"]').click();await fakePopup(unavailable);await ask(unavailable);await idle(unavailable);
   assert.match(await unavailable.locator('#generated-prompt').inputValue(),/laptop/i);
@@ -968,7 +982,7 @@ test('missing jurisdiction, incomplete consent, rejection and CMP failures canno
 });
 
 test('a consent manager may confirm non-GDPR applicability but unknown applicability never bypasses the gate', async t => {
-  const p=await open(t,{consent:{cmpStatus:'loaded',eventStatus:'tcloaded'}});
+  const p=await openPublisherFixture(t,{consent:{cmpStatus:'loaded',eventStatus:'tcloaded'}});
   await p.waitForFunction(()=>Boolean(window.__emitConsent));
   assert.equal(await p.locator('#adsense-sdk').count(),0);
   await p.evaluate(()=>window.__emitConsent({cmpStatus:'loaded',eventStatus:'tcloaded',gdprApplies:false}));
@@ -977,7 +991,7 @@ test('a consent manager may confirm non-GDPR applicability but unknown applicabi
 
 test('eventless non-GDPR TCData is usable with or without the optional loaded CMP status', async t => {
   for (const extra of [{}, {cmpStatus:'loaded'}]) {
-    const p=await open(t,{clock:true,consent:{gdprApplies:false,tcfPolicyVersion:4,cmpId:300,cmpVersion:1,...extra}});
+    const p=await openPublisherFixture(t,{clock:true,consent:{gdprApplies:false,tcfPolicyVersion:4,cmpId:300,cmpVersion:1,...extra}});
     await p.waitForFunction(()=>window.__adLoads===1,null,{timeout:1500});
     await p.clock.fastForward(12000);
     assert.equal(await p.locator('html').getAttribute('data-advertising'),'enabled');
@@ -987,7 +1001,7 @@ test('eventless non-GDPR TCData is usable with or without the optional loaded CM
 });
 
 test('eventless replies cannot bypass unknown applicability, failed callbacks, CMP errors or the browser block', async t => {
-  const p=await open(t);
+  const p=await openPublisherFixture(t);
   await p.waitForFunction(()=>Boolean(window.__emitConsent));
   for (const data of [
     {cmpStatus:'loaded'},
@@ -1005,13 +1019,13 @@ test('eventless replies cannot bypass unknown applicability, failed callbacks, C
     await p.evaluate(success=>window.__emitConsent({gdprApplies:false},success === undefined ? null : success),success);
     assert.equal(await p.locator('#adsense-sdk').count(),0);
   }
-  const blocked=await open(t,{storage:{[AD_BLOCK_KEY]:'1'},consent:{gdprApplies:false}});
+  const blocked=await openPublisherFixture(t,{storage:{[AD_BLOCK_KEY]:'1'},consent:{gdprApplies:false}});
   await blocked.waitForFunction(()=>Boolean(window.__emitConsent));
   assert.equal(await blocked.locator('#adsense-sdk').count(),0);
 });
 
 test('persistent advertising block overrides Google consent, survives reload and syncs across tabs', async t => {
-  const p=await open(t,{storage:{[AD_BLOCK_KEY]:'1'},consent:acceptedConsent});
+  const p=await openPublisherFixture(t,{storage:{[AD_BLOCK_KEY]:'1'},consent:acceptedConsent});
   await p.waitForFunction(()=>Boolean(window.__emitConsent));
   assert.equal(await p.locator('#adsense-sdk').count(),0);
   await privacy(p);assert.equal(await p.locator('#block-advertising').isChecked(),true);
@@ -1027,7 +1041,7 @@ test('persistent advertising block overrides Google consent, survives reload and
 });
 
 test('withdrawing Google consent reloads a page that already loaded advertising', async t => {
-  const p=await open(t);await p.waitForFunction(()=>Boolean(window.__emitConsent));
+  const p=await openPublisherFixture(t);await p.waitForFunction(()=>Boolean(window.__emitConsent));
   await p.evaluate(data=>window.__emitConsent(data),acceptedConsent);await p.waitForFunction(()=>window.__adLoads===1);
   await Promise.all([p.waitForEvent('domcontentloaded'),p.evaluate(()=>window.__emitConsent({cmpStatus:'loaded',eventStatus:'useractioncomplete',gdprApplies:true,tcString:'test-declined',purpose:{consents:{1:false}},vendor:{consents:{755:false}}}))]);
   await p.waitForFunction(()=>Boolean(window.__emitConsent));
@@ -1035,7 +1049,7 @@ test('withdrawing Google consent reloads a page that already loaded advertising'
 });
 
 test('Google privacy choices can be reopened and privacy controls fit phones in every palette', async t => {
-  const p=await open(t,{viewport:{width:320,height:568},hasTouch:true});
+  const p=await openPublisherFixture(t,{viewport:{width:320,height:568},hasTouch:true});
   for(const mode of ['light','dark','contrast']) {
     await appearance(p,mode);await p.locator('#close-tools').click();
     await privacy(p);await p.evaluate(axe.source);
@@ -1062,13 +1076,13 @@ test('Google privacy choices can be reopened and privacy controls fit phones in 
 
 
 test('stalled consent and failed advertising requests leave search usable without automatic retries', async t => {
-  const waiting=await open(t,{cmpMode:'pending',clock:true});
+  const waiting=await openPublisherFixture(t,{cmpMode:'pending',clock:true});
   await waiting.clock.fastForward(10001);
   assert.equal(await waiting.locator('html').getAttribute('data-advertising'),'unavailable');
   assert.equal(await waiting.locator('#adsense-sdk').count(),0);
   await ask(waiting);await idle(waiting);
   assert.equal(await waiting.locator('.message.assistant .answer-content').count(),1);
-  const p=await open(t);
+  const p=await openPublisherFixture(t);
   let requests=0;
   await p.context().route('https://pagead2.googlesyndication.com/**',route=>{requests++;return route.abort();});
   await p.waitForFunction(()=>Boolean(window.__emitConsent));
@@ -1080,7 +1094,7 @@ test('stalled consent and failed advertising requests leave search usable withou
 });
 
 test('privacy storage failures preserve an explicit block for the visit without changing reward preferences', async t => {
-  const p=await open(t,{blockedStorage:true});
+  const p=await openPublisherFixture(t,{blockedStorage:true});
   await privacy(p);await p.locator('#block-advertising').check();
   assert.match(await p.locator('#privacy-storage').textContent(),/could not save.*visit/);
   await p.waitForFunction(()=>Boolean(window.__emitConsent));
@@ -1093,7 +1107,7 @@ test('privacy storage failures preserve an explicit block for the visit without 
 
 
 test('an advertising block survives the required reload even when preference writes fail', async t => {
-  const p=await open(t,{blockedStorage:true,consent:acceptedConsent});
+  const p=await openPublisherFixture(t,{blockedStorage:true,consent:acceptedConsent});
   await p.waitForFunction(()=>window.__adLoads===1);await privacy(p);
   await Promise.all([p.waitForEvent('domcontentloaded'),p.locator('#block-advertising').click()]);
   await p.waitForFunction(()=>Boolean(window.__emitConsent));
@@ -1118,7 +1132,7 @@ async function acceptTestAds(page) {
 
 test('an unconfigured or invalid manual ad slot stays hidden without reserving empty space or requesting ads', async t => {
   for(const slot of ['', 'ca-pub-8404673257565926', '0', 'not-a-slot']) {
-    const p=await open(t,{viewport:{width:390,height:844},hasTouch:true});
+    const p=await openPublisherFixture(t,{viewport:{width:390,height:844},hasTouch:true});
     await configureTestAd(p,slot);await acceptTestAds(p);
     await p.evaluate(()=>window.scrollTo(0,document.documentElement.scrollHeight));
     assert.equal(await p.locator('#display-ad').isVisible(),false,slot+' remains hidden');
@@ -1128,7 +1142,7 @@ test('an unconfigured or invalid manual ad slot stays hidden without reserving e
 });
 
 test('one configured display ad waits for consent and visibility, then never refreshes on resize or new chat', async t => {
-  const p=await open(t,{viewport:{width:390,height:844},hasTouch:true});
+  const p=await openPublisherFixture(t,{viewport:{width:390,height:844},hasTouch:true});
   await configureTestAd(p);
   assert.equal(await p.locator('#display-ad').isVisible(),false);
   assert.equal(await p.locator('#adsense-sdk').count(),0);
@@ -1154,7 +1168,7 @@ test('one configured display ad waits for consent and visibility, then never ref
 });
 
 test('rejected consent and the browser advertising block prevent a configured manual ad', async t => {
-  const p=await open(t,{viewport:{width:390,height:844}});await configureTestAd(p);
+  const p=await openPublisherFixture(t,{viewport:{width:390,height:844}});await configureTestAd(p);
   await p.waitForFunction(()=>document.documentElement.dataset.advertising==='declined');
   await p.evaluate(()=>window.scrollTo(0,document.documentElement.scrollHeight));
   assert.equal(await p.locator('#display-ad').isVisible(),false);
@@ -1166,7 +1180,7 @@ test('rejected consent and the browser advertising block prevent a configured ma
 });
 
 test('an unfilled manual ad hides its label and reserved space without retrying', async t => {
-  const p=await open(t);await configureTestAd(p);await p.evaluate(()=>window.__adUnfilled=true);
+  const p=await openPublisherFixture(t);await configureTestAd(p);await p.evaluate(()=>window.__adUnfilled=true);
   await acceptTestAds(p);await p.locator('#display-ad').scrollIntoViewIfNeeded();
   await p.waitForFunction(()=>document.getElementById('display-ad').dataset.state==='unfilled');
   assert.equal(await p.locator('#display-ad').isVisible(),false);
@@ -1176,7 +1190,7 @@ test('an unfilled manual ad hides its label and reserved space without retrying'
 });
 
 test('manual ad queue failures leave search usable and do not automatically retry', async t => {
-  const p=await open(t);await configureTestAd(p);await p.evaluate(()=>window.__adPushThrows=true);
+  const p=await openPublisherFixture(t);await configureTestAd(p);await p.evaluate(()=>window.__adPushThrows=true);
   await acceptTestAds(p);await p.locator('#display-ad').scrollIntoViewIfNeeded();
   await p.waitForFunction(()=>document.getElementById('display-ad').dataset.state==='failed');
   assert.equal(await p.locator('#display-ad').isVisible(),false);
@@ -1187,7 +1201,7 @@ test('manual ad queue failures leave search usable and do not automatically retr
 
 test('a configured manual ad fits phone and desktop widths, respects every palette and stays clear of chat controls', async t => {
   for(const mode of ['light','dark','contrast']) {
-    const p=await open(t,{viewport:{width:320,height:568},hasTouch:true});
+    const p=await openPublisherFixture(t,{viewport:{width:320,height:568},hasTouch:true});
     await appearance(p,mode);await p.locator('#close-tools').click();
     await configureTestAd(p);await acceptTestAds(p);
     await p.locator('#display-ad').scrollIntoViewIfNeeded();await p.waitForFunction(()=>window.__adRequests===1);
@@ -1211,7 +1225,7 @@ test('a configured manual ad fits phone and desktop widths, respects every palet
 });
 
 test('the ad collapses with keyboard and touch controls and reopening never refreshes it', async t => {
-  const p=await open(t,{viewport:{width:390,height:844},hasTouch:true});
+  const p=await openPublisherFixture(t,{viewport:{width:390,height:844},hasTouch:true});
   await configureTestAd(p);await acceptTestAds(p);
   await p.locator('#display-ad-content').scrollIntoViewIfNeeded();await p.waitForFunction(()=>window.__adRequests===1);
   const toggle=p.locator('#toggle-display-ad');
@@ -1238,7 +1252,7 @@ test('the ad collapses with keyboard and touch controls and reopening never refr
 });
 
 test('collapsing before the ad becomes visible prevents its first request until reopened', async t => {
-  const p=await open(t,{viewport:{width:390,height:844}});await configureTestAd(p);await acceptTestAds(p);
+  const p=await openPublisherFixture(t,{viewport:{width:390,height:844}});await configureTestAd(p);await acceptTestAds(p);
   assert.equal(await p.evaluate(()=>window.__adRequests||0),0);
   // Dispatch the accessible control without scrolling the below-fold ad into
   // view, then verify scrolling cannot request a hidden creative.
@@ -1356,7 +1370,7 @@ test('iPad desktop-mode identification offers app handoff while a narrow desktop
 });
 
 test('consent startup recovers after an early API stub rejects listener registration', async t => {
-  const p=await open(t,{cmpMode:'stub',consent:acceptedConsent});
+  const p=await openPublisherFixture(t,{cmpMode:'stub',consent:acceptedConsent});
   await p.waitForFunction(()=>window.__stubRegistrations>0);
   assert.equal(await p.locator('#adsense-sdk').count(),0);
   await p.evaluate(()=>window.__releaseConsent());
@@ -1367,7 +1381,7 @@ test('consent startup recovers after an early API stub rejects listener registra
 });
 
 test('reviewing privacy choices retries a consent API that became ready without a callback', async t => {
-  const p=await open(t,{cmpMode:'stub',consent:acceptedConsent});
+  const p=await openPublisherFixture(t,{cmpMode:'stub',consent:acceptedConsent});
   await p.waitForFunction(()=>window.__stubRegistrations>0);await p.evaluate(()=>window.__releaseConsent(false));
   await privacy(p);await p.locator('#review-google-consent').click();
   await p.waitForFunction(()=>window.__adLoads===1,{},{timeout:1500});
@@ -1376,22 +1390,22 @@ test('reviewing privacy choices retries a consent API that became ready without 
 
 test('an open consent message stays pending instead of becoming a false service error', async t => {
   const pending={cmpStatus:'loaded',eventStatus:'cmpuishown',gdprApplies:true};
-  const p=await open(t,{consent:pending,clock:true});await p.waitForFunction(()=>Boolean(window.__emitConsent));
+  const p=await openPublisherFixture(t,{consent:pending,clock:true});await p.waitForFunction(()=>Boolean(window.__emitConsent));
   await p.clock.fastForward(12000);
   assert.equal(await p.locator('html').getAttribute('data-advertising'),'waiting');
   assert.match(await p.locator('#privacy-status').textContent(),/privacy message is open/);
   assert.equal(await p.locator('#adsense-sdk').count(),0);
   await p.evaluate(data=>window.__emitConsent(data),acceptedConsent);await p.waitForFunction(()=>window.__adLoads===1);
-  const blocked=await open(t,{consent:pending,clock:true,storage:{[AD_BLOCK_KEY]:'1'}});
+  const blocked=await openPublisherFixture(t,{consent:pending,clock:true,storage:{[AD_BLOCK_KEY]:'1'}});
   await blocked.clock.fastForward(12000);
   assert.equal(await blocked.locator('html').getAttribute('data-advertising'),'blocked');
   assert.equal(await blocked.locator('#adsense-sdk').count(),0);
 });
 
-test('privacy status distinguishes a Google no-fill result from an ad waiting below the app', async t => {
-  const p=await open(t,{viewport:{width:390,height:844},hasTouch:true});
+test('privacy status distinguishes a Google no-fill result from an ad waiting after the guide', async t => {
+  const p=await openPublisherFixture(t,{viewport:{width:390,height:844},hasTouch:true});
   await configureTestAd(p);await p.evaluate(()=>window.__adUnfilled=true);await acceptTestAds(p);
-  assert.match(await p.locator('#privacy-status').textContent(),/below the app/);
+  assert.match(await p.locator('#privacy-status').textContent(),/after this guide/);
   await p.locator('#display-ad-content').evaluate(e=>e.scrollIntoView());
   await p.waitForFunction(()=>document.getElementById('display-ad').dataset.state==='unfilled');
   assert.match(await p.locator('#privacy-status').textContent(),/did not supply an ad/);
@@ -1402,7 +1416,7 @@ test('privacy status distinguishes a Google no-fill result from an ad waiting be
 });
 
 test('Google readiness resubscribes after API replacement and ignores stale callbacks', async t => {
-  const p=await open(t);await p.waitForFunction(()=>window.__consentListeners?.length===1);
+  const p=await openPublisherFixture(t);await p.waitForFunction(()=>window.__consentListeners?.length===1);
   await p.locator('#chat-input').fill('Keep this draft');
   await p.evaluate(data=>{
     window.__staleConsentCallback=window.__consentListeners[0];
@@ -1462,7 +1476,7 @@ test('privacy troubleshooting distinguishes a failed script from a loaded script
 });
 
 test('privacy troubleshooting records enforced CSP failures without exposing private values or arbitrary URLs', async t => {
-  const p=await open(t);
+  const p=await openPublisherFixture(t);
   await p.goto(origin+'?private=private-query-value#private-fragment');
   await p.waitForFunction(()=>Boolean(window.__emitConsent));
   await p.locator('#chat-input').fill('private-question-value');
@@ -1527,9 +1541,9 @@ test('loading details are included in page text and the Copy button supports den
   assert.equal(await p.locator('#adsense-sdk').count(),0);
 });
 
-test('both pages reference the current consent script and stylesheet revisions', async t => {
+test('all pages reference the current consent script and stylesheet revisions', async t => {
   const p=await open(t);
-  for (const path of ['', 'privacy.html']) {
+  for (const path of ['', 'privacy.html','guides.html','about.html','avios-value.html','reward-stacking.html','hotel-comparisons.html','reward-checklist.html']) {
     if (path) await p.goto(origin+path);
     for (const file of ['consent.js','styles.css']) {
       const hash=createHash('sha256').update(readFileSync(resolve(__dirname,'..',file))).digest('hex').slice(0,12);
@@ -1537,5 +1551,111 @@ test('both pages reference the current consent script and stylesheet revisions',
       const url=new URL(await p.locator(selector).getAttribute(file.endsWith('.js')?'src':'href'),p.url());
       assert.equal(url.searchParams.get('v'),hash,file+' revision matches its current contents');
     }
+  }
+});
+
+const GUIDE_PAGES=['avios-value.html','reward-stacking.html','hotel-comparisons.html','reward-checklist.html'];
+
+test('the real chat screen never loads ads for empty, answered, external-AI or reset conversations', async t => {
+  const p=await open(t,{consent:acceptedConsent});
+  await p.waitForFunction(()=>document.documentElement.dataset.advertising==='ready');
+  assert.equal(await p.locator('#adsense-code, #display-ad-code, #display-ad, #adsense-sdk').count(),0);
+  await ask(p,'Compare my purchase');await idle(p);
+  assert.equal(await p.locator('.message.assistant .answer-content').count(),1);
+  await p.locator('[data-mode="own"]').click();await fakePopup(p);await ask(p,'Prepare another purchase');await idle(p);
+  assert.match(await p.locator('#generated-prompt').inputValue(),/another purchase/);
+  await p.locator('#clear-chat').click();
+  await p.locator('#chat-input').fill('Preserve my draft after privacy review');
+  const navigations=[];p.on('framenavigated',frame=>{if(frame===p.mainFrame())navigations.push(frame.url());});
+  await p.evaluate(()=>window.__emitConsent({cmpStatus:'loaded',eventStatus:'useractioncomplete',gdprApplies:true,tcString:'rejected',vendor:{consents:{755:false}},purpose:{consents:{1:false}}}));
+  assert.equal(await p.locator('#chat-input').inputValue(),'Preserve my draft after privacy review');
+  assert.deepEqual(navigations,[],'with no advertising SDK there is no revocation reload');
+  assert.equal(await p.evaluate(()=>window.__adLoads||0),0);
+  assert.equal(await p.evaluate(()=>window.__adRequests||0),0);
+});
+
+test('navigation, About and Privacy pages never request advertising even with permitted consent', async t => {
+  for (const path of ['guides.html','about.html','privacy.html']) {
+    const p=await open(t,{path,consent:acceptedConsent});
+    await p.waitForFunction(()=>document.documentElement.dataset.advertising==='ready');
+    assert.equal(await p.locator('#adsense-code, #display-ad-code, #display-ad, #adsense-sdk').count(),0,path);
+    assert.equal(await p.evaluate(()=>window.__adLoads||0),0);
+    assert.equal(await p.evaluate(()=>window.__adRequests||0),0);
+  }
+});
+
+test('every real guide loads its one collapsible unit only after the complete article and foreground visibility', async t => {
+  for (const path of GUIDE_PAGES) {
+    const p=await open(t,{path,consent:acceptedConsent,viewport:{width:390,height:844},hasTouch:true});
+    await p.waitForFunction(()=>window.__adLoads===1);
+    assert.equal(await p.evaluate(()=>window.__adRequests||0),0,'no request while the full article is above the placement');
+    assert.equal(await p.locator('script[src*="js.puter.com"],#chat-input').count(),0,'reading uses no AI SDK or allowance');
+    const article=await p.locator('.publisher-article').boundingBox(), ad=await p.locator('#display-ad').boundingBox();
+    assert.ok(ad.y>=article.y+article.height+32,'ad follows all publisher content');
+    await p.locator('#display-ad-content').scrollIntoViewIfNeeded();
+    await p.waitForFunction(()=>window.__adRequests===1);
+    assert.equal(await p.locator('#display-ad-content ins').getAttribute('data-ad-slot'),'7897539333');
+    const toggle=p.locator('#toggle-display-ad');await toggle.focus();await toggle.press('Enter');
+    assert.equal(await p.locator('#display-ad-content').isVisible(),false);
+    await toggle.press('Enter');assert.equal(await p.locator('#display-ad-content').isVisible(),true);
+    await p.setViewportSize({width:320,height:568});await p.locator('#display-ad').scrollIntoViewIfNeeded();
+    assert.ok(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),path+' has no phone overflow');
+    assert.equal(await p.evaluate(()=>window.__adRequests),1,'reopening and resizing never refreshes the unit');
+  }
+});
+
+test('publisher marker and complete placement are required even if ad markup is accidentally added to a navigation page', async t => {
+  const p=await open(t,{path:'about.html',consent:acceptedConsent});
+  const guide=readFileSync(resolve(__dirname,'..','avios-value.html'),'utf8');
+  const placement=guide.match(/<aside id="display-ad"[\s\S]*?<\/aside>/)[0];
+  const loader=guide.match(/<template id="adsense-code">[\s\S]*?<\/template>/)[0];
+  const invalidPage=readFileSync(resolve(__dirname,'..','about.html'),'utf8').replace('</main>','</main>'+placement+loader);
+  await p.context().route(origin+'about.html',route=>route.fulfill({contentType:'text/html',body:invalidPage}));
+  await p.reload();await p.waitForFunction(()=>document.documentElement.dataset.advertising==='ready');
+  await privacy(p);assert.match(await p.locator('#advertising-diagnostics').textContent(),/Page advertising: disabled/);
+  assert.equal(await p.locator('#adsense-code').count(),1,'the accidental loader really exists');
+  assert.equal(await p.locator('#adsense-sdk').count(),0,'permitted consent cannot enable a page without a guide marker');
+  assert.equal(await p.evaluate(()=>window.__adRequests||0),0);
+});
+
+test('published guides and methodology remain useful without JavaScript and their internal links resolve', async t => {
+  const context=await browser.newContext({javaScriptEnabled:false,viewport:{width:390,height:844},serviceWorkers:'block'});
+  t.after(()=>context.close());const p=await context.newPage();
+  await context.route('https://**/*',route=>route.abort());
+  const links=new Set();
+  for (const path of ['guides.html','about.html',...GUIDE_PAGES]) {
+    await p.goto(origin+path);
+    assert.equal(await p.locator('main h1').count(),1,path);
+    assert.ok(await p.locator('main').isVisible());
+    if (GUIDE_PAGES.includes(path)) {
+      assert.ok(await p.locator('article h2').count()>=5,'worked guide sections are present in HTML');
+      assert.match(await p.locator('main').innerText(),/hypothetical|invented|fictional/i);
+      assert.equal(await p.locator('#display-ad').isVisible(),false,'no JavaScript means no advertising');
+      const quote=await p.locator('a[href^="https://"]').first().getAttribute('href');
+      assert.ok(quote.startsWith('https://'),'official reading links remain ordinary links');
+    }
+    for (const link of await p.locator('a[href]').evaluateAll(els=>els.map(el=>el.getAttribute('href')))) {
+      const url=new URL(link,p.url());if(url.origin===new URL(origin).origin)links.add(url.href);
+    }
+  }
+  for (const link of links) {
+    const url=new URL(link);const response=await p.request.get(url.href);
+    assert.equal(response.status(),200,link+' resolves under the project path');
+    if (url.hash) {const source=await response.text();assert.ok(source.includes('id="'+decodeURIComponent(url.hash.slice(1))+'"'),link+' fragment exists');}
+  }
+});
+
+test('guide pages, listing and methodology fit phones and pass accessibility checks in all palettes', async t => {
+  const p=await open(t,{path:'guides.html',viewport:{width:320,height:568},hasTouch:true});
+  for (const path of ['guides.html','about.html',...GUIDE_PAGES]) {
+    await p.goto(origin+path);await p.evaluate(axe.source);
+    for (const theme of ['light','dark','contrast']) {
+      await p.evaluate(theme=>document.documentElement.dataset.theme=theme,theme);
+      const results=await p.evaluate(()=>axe.run(document,{runOnly:{type:'tag',values:['wcag2a','wcag2aa','wcag21aa']}}));
+      assert.deepEqual(results.violations.map(v=>({id:v.id,targets:v.nodes.map(n=>n.target)})),[],path+' '+theme);
+      assert.ok(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),path+' '+theme+' fits 320px');
+    }
+    await p.locator('.skip-link').focus();await p.keyboard.press('Enter');
+    assert.equal(await p.evaluate(()=>document.activeElement.id),'guide-main','skip link reaches the content');
   }
 });
